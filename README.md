@@ -8,7 +8,7 @@ A macOS Messages.app CLI to send, read, and stream iMessage/SMS (with attachment
 - Phone normalization to E.164 for reliable buddy lookup (`--region`, default US).
 - Optional attachment metadata output (mime, name, path, missing flag).
 - Filters: participants, start/end time, JSON output for tooling.
-- Read-only DB access (`mode=ro&immutable=1`), no DB writes.
+- Read-only DB access (`mode=ro`), no DB writes.
 
 ## Requirements
 - macOS with Messages.app signed in.
