@@ -1,6 +1,6 @@
 {
   "name": "imsg",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "scripts": {
     "deps:patch": "swift package resolve && scripts/patch-deps.sh",

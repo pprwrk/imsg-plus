@@ -24,13 +24,16 @@ let package = Package(
                 .linkedFramework("ScriptingBridge"),
             ]
         ),
-        .executableTarget(
-            name: "imsg",
-            dependencies: [
-                "IMsgCore",
-                .product(name: "Commander", package: "Commander"),
-            ]
-        ),
+    .executableTarget(
+        name: "imsg",
+        dependencies: [
+            "IMsgCore",
+            .product(name: "Commander", package: "Commander"),
+        ],
+        resources: [
+            .process("Resources"),
+        ]
+    ),
         .testTarget(
             name: "IMsgCoreTests",
             dependencies: [

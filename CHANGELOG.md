@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.1 - 2025-12-28
+- fix: embed CLI version in resources for `--version` output
+- docs: release checklist now includes version file update
+
 ## 0.2.0 - 2025-12-28
 - feat: Swift 6 rewrite with reusable IMsgCore library target
 - feat: Commander-based CLI with SwiftPM build/test workflow

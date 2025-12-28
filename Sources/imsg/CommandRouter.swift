@@ -8,7 +8,7 @@ struct CommandRouter {
   let program: Program
 
   init() {
-    self.version = ProcessInfo.processInfo.environment["IMSG_VERSION"] ?? "dev"
+    self.version = CommandRouter.resolveVersion()
     self.specs = [
       ChatsCommand.spec,
       HistoryCommand.spec,
@@ -93,5 +93,22 @@ struct CommandRouter {
       path.append(token)
     }
     return path
+  }
+
+  private static func resolveVersion() -> String {
+    if let envVersion = ProcessInfo.processInfo.environment["IMSG_VERSION"],
+      !envVersion.isEmpty
+    {
+      return envVersion
+    }
+    if let url = Bundle.module.url(forResource: "version", withExtension: "txt"),
+      let value = try? String(contentsOf: url, encoding: .utf8)
+    {
+      let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !trimmed.isEmpty {
+        return trimmed
+      }
+    }
+    return "dev"
   }
 }
