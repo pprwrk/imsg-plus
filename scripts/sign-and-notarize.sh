@@ -9,6 +9,8 @@ CODESIGN_IDENTITY=${CODESIGN_IDENTITY:-"Developer ID Application: Peter Steinber
 ENTITLEMENTS="${ROOT}/Resources/imsg.entitlements"
 OUTPUT_DIR="${OUTPUT_DIR:-/tmp}"
 ZIP_PATH="${OUTPUT_DIR}/imsg-macos.zip"
+ARCHES_VALUE=${ARCHES:-"arm64 x86_64"}
+ARCH_LIST=( ${ARCHES_VALUE} )
 DIST_DIR="$(mktemp -d "/tmp/${APP_NAME}-dist.XXXXXX")"
 API_KEY_FILE="$(mktemp "/tmp/${APP_NAME}-notary.XXXXXX.p8")"
 
@@ -25,14 +27,23 @@ fi
 
 echo "$APP_STORE_CONNECT_API_KEY_P8" | sed 's/\\n/\n/g' > "$API_KEY_FILE"
 
-swift build -c release --product imsg
+for ARCH in "${ARCH_LIST[@]}"; do
+  swift build -c release --product imsg --arch "$ARCH"
+done
+
+BINARIES=()
+for ARCH in "${ARCH_LIST[@]}"; do
+  BINARIES+=("$ROOT/.build/${ARCH}-apple-macosx/release/imsg")
+done
+
+lipo -create "${BINARIES[@]}" -output "$DIST_DIR/imsg"
 
 codesign --force --timestamp --options runtime --sign "$CODESIGN_IDENTITY" \
   --entitlements "$ENTITLEMENTS" \
-  "$ROOT/.build/release/imsg"
+  "$DIST_DIR/imsg"
 
-cp "$ROOT/.build/release/imsg" "$DIST_DIR/imsg"
-for bundle in "$ROOT/.build/release"/*.bundle; do
+FIRST_ARCH="${ARCH_LIST[0]}"
+for bundle in "$ROOT/.build/${FIRST_ARCH}-apple-macosx/release"/*.bundle; do
   if [[ -e "$bundle" ]]; then
     cp -R "$bundle" "$DIST_DIR/"
   fi

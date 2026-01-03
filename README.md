@@ -19,7 +19,7 @@ A macOS Messages.app CLI to send, read, and stream iMessage/SMS (with attachment
 
 ## Install
 ```bash
-pnpm build
+make build
 # binary at ./bin/imsg
 ```
 
@@ -67,15 +67,15 @@ If you see “unable to open database file” or empty output:
 
 ## Testing
 ```bash
-pnpm test
+make test
 ```
 
-Note: pnpm scripts apply a small patch to SQLite.swift to silence a SwiftPM warning about `PrivacyInfo.xcprivacy`.
+Note: `make test` applies a small patch to SQLite.swift to silence a SwiftPM warning about `PrivacyInfo.xcprivacy`.
 
 ## Linting & formatting
 ```bash
-pnpm lint
-pnpm format
+make lint
+make format
 ```
 
 ## Core library

@@ -14,15 +14,9 @@ jobs:
         run: swift --version
       - name: Install SwiftLint
         run: brew install swiftlint
-      - name: Resolve packages
-        run: swift package resolve
-      - name: Patch dependencies
-        run: scripts/patch-deps.sh
-      - name: Swift format lint
-        run: swift format lint --recursive Sources Tests
-      - name: SwiftLint
-        run: swiftlint
-      - name: Swift test
-        run: swift test
-      - name: Swift build
-        run: swift build -c release --product imsg
+      - name: Lint
+        run: make lint
+      - name: Test
+        run: make test
+      - name: Build
+        run: make build ARCHES=$(uname -m)

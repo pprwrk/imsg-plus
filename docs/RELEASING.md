@@ -8,12 +8,12 @@
 1. Update `CHANGELOG.md` and version
    - Move entries from `Unreleased` into a new `## X.Y.Z - YYYY-MM-DD` section.
    - Credit contributors (e.g. `thanks @user`).
-   - Update `version.env` and `package.json` to `X.Y.Z`.
+   - Update `version.env` to `X.Y.Z`.
    - Run `scripts/generate-version.sh` (also refreshes `Sources/imsg/Resources/Info.plist`).
 2. Ensure CI is green on `main`
-   - `pnpm lint`
-   - `pnpm test`
-   - `pnpm format` (optional, if formatting changes are expected)
+   - `make lint`
+   - `make test`
+   - `make format` (optional, if formatting changes are expected)
 3. Build, sign, and notarize
    - Requires `APP_STORE_CONNECT_API_KEY_P8`, `APP_STORE_CONNECT_KEY_ID`, `APP_STORE_CONNECT_ISSUER_ID`.
    - `scripts/sign-and-notarize.sh` (outputs `/tmp/imsg-macos.zip` by default)
