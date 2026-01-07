@@ -1,4 +1,4 @@
-# RPC (proposed)
+# RPC
 
 Goal: signal-style JSON-RPC without a daemon. Clawdis spawns `imsg rpc` and talks over stdio.
 
@@ -78,6 +78,8 @@ Result:
 ### Message
 - `id` (rowid)
 - `chat_id` (always present; preferred handle for routing)
+- `guid` (string)
+- `reply_to_guid` (string, optional)
 - `sender`
 - `is_from_me`
 - `text`
@@ -104,7 +106,7 @@ Response:
 
 Subscribe:
 ```
-{"jsonrpc":"2.0","id":"2","method":"watch.subscribe","params":{"include_chat":true}}
+{"jsonrpc":"2.0","id":"2","method":"watch.subscribe","params":{"chat_id":1}}
 ```
 
 Notification:

@@ -39,6 +39,14 @@ func iso8601ParserParsesFormats() {
 }
 
 @Test
+func iso8601ParserFormatsDates() {
+  let date = Date(timeIntervalSince1970: 0)
+  let formatted = ISO8601Parser.format(date)
+  #expect(formatted.contains("T"))
+  #expect(ISO8601Parser.parse(formatted) != nil)
+}
+
+@Test
 func messageFilterHonorsParticipantsAndDates() throws {
   let now = Date(timeIntervalSince1970: 1000)
   let message = Message(
@@ -132,6 +140,148 @@ func messageSenderBuildsArguments() throws {
 
 @Test
 func messageSenderUsesChatIdentifier() throws {
+  let fileManager = FileManager.default
+  let tempDir = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
+  defer { try? fileManager.removeItem(at: tempDir) }
+  let attachment = tempDir.appendingPathComponent("file.dat")
+  try Data("hello".utf8).write(to: attachment)
+  let attachmentsSubdirectory = tempDir.appendingPathComponent("staged")
+  try fileManager.createDirectory(at: attachmentsSubdirectory, withIntermediateDirectories: true)
+
+  var captured: [String] = []
+  let sender = MessageSender(
+    runner: { _, args in captured = args },
+    attachmentsSubdirectoryProvider: { attachmentsSubdirectory }
+  )
+  try sender.send(
+    MessageSendOptions(
+      recipient: "",
+      text: "hi",
+      attachmentPath: attachment.path,
+      service: .sms,
+      region: "US",
+      chatIdentifier: "iMessage;+;chat123",
+      chatGUID: "ignored-guid"
+    )
+  )
+  #expect(captured[5] == "ignored-guid")
+  #expect(captured[6] == "1")
+  #expect(captured[4] == "1")
+}
+
+@Test
+func messageSenderStagesAttachmentsBeforeSend() throws {
+  let fileManager = FileManager.default
+  let attachmentsSubdirectory = fileManager.temporaryDirectory.appendingPathComponent(
+    UUID().uuidString
+  )
+  try fileManager.createDirectory(at: attachmentsSubdirectory, withIntermediateDirectories: true)
+  defer { try? fileManager.removeItem(at: attachmentsSubdirectory) }
+  let sourceDir = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  try fileManager.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+  defer { try? fileManager.removeItem(at: sourceDir) }
+  let sourceFile = sourceDir.appendingPathComponent("sample.txt")
+  let payload = Data("hi".utf8)
+  try payload.write(to: sourceFile)
+
+  var captured: [String] = []
+  let sender = MessageSender(
+    runner: { _, args in captured = args },
+    attachmentsSubdirectoryProvider: { attachmentsSubdirectory }
+  )
+
+  try sender.send(
+    MessageSendOptions(
+      recipient: "+16502530000",
+      text: "",
+      attachmentPath: sourceFile.path,
+      service: .imessage,
+      region: "US"
+    )
+  )
+
+  let stagedPath = captured[3]
+  #expect(stagedPath != sourceFile.path)
+  #expect(stagedPath.hasPrefix(attachmentsSubdirectory.path))
+  #expect(fileManager.fileExists(atPath: stagedPath))
+  let stagedData = try Data(contentsOf: URL(fileURLWithPath: stagedPath))
+  #expect(stagedData == payload)
+}
+
+@Test
+func messageSenderThrowsWhenAttachmentsSubdirectoryIsReadOnly() throws {
+  let fileManager = FileManager.default
+  let readOnlyRoot = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  try fileManager.createDirectory(at: readOnlyRoot, withIntermediateDirectories: true)
+  try fileManager.setAttributes([.posixPermissions: 0o555], ofItemAtPath: readOnlyRoot.path)
+  defer {
+    try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: readOnlyRoot.path)
+    try? fileManager.removeItem(at: readOnlyRoot)
+  }
+  let sourceFile = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  let payload = Data("payload".utf8)
+  try payload.write(to: sourceFile)
+  defer { try? fileManager.removeItem(at: sourceFile) }
+
+  let sender = MessageSender(
+    runner: { _, _ in },
+    attachmentsSubdirectoryProvider: { readOnlyRoot }
+  )
+
+  do {
+    try sender.send(
+      MessageSendOptions(
+        recipient: "+16502530000",
+        text: "",
+        attachmentPath: sourceFile.path,
+        service: .imessage,
+        region: "US"
+      )
+    )
+    #expect(Bool(false))
+  } catch {
+    #expect(Bool(true))
+  }
+}
+
+@Test
+func messageSenderThrowsWhenAttachmentMissing() {
+  let fileManager = FileManager.default
+  let attachmentsSubdirectory = fileManager.temporaryDirectory.appendingPathComponent(
+    UUID().uuidString
+  )
+  try? fileManager.createDirectory(at: attachmentsSubdirectory, withIntermediateDirectories: true)
+  defer { try? fileManager.removeItem(at: attachmentsSubdirectory) }
+  let missingFile = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
+  var runnerCalled = false
+  let sender = MessageSender(
+    runner: { _, _ in runnerCalled = true },
+    attachmentsSubdirectoryProvider: { attachmentsSubdirectory }
+  )
+
+  do {
+    try sender.send(
+      MessageSendOptions(
+        recipient: "+16502530000",
+        text: "",
+        attachmentPath: missingFile,
+        service: .imessage,
+        region: "US"
+      )
+    )
+    #expect(Bool(false))
+  } catch let error as IMsgError {
+    #expect(error.errorDescription?.contains("Attachment not found") == true)
+  } catch {
+    #expect(Bool(false))
+  }
+
+  #expect(runnerCalled == false)
+}
+
+@Test
+func messageSenderTreatsHandleIdentifierAsRecipient() throws {
   var captured: [String] = []
   let sender = MessageSender(runner: { _, args in
     captured = args
@@ -140,16 +290,16 @@ func messageSenderUsesChatIdentifier() throws {
     MessageSendOptions(
       recipient: "",
       text: "hi",
-      attachmentPath: "/tmp/file.dat",
-      service: .sms,
+      attachmentPath: "",
+      service: .auto,
       region: "US",
-      chatIdentifier: "iMessage;+;chat123",
-      chatGUID: "ignored-guid"
+      chatIdentifier: "+16502530000",
+      chatGUID: ""
     )
   )
-  #expect(captured[5] == "iMessage;+;chat123")
-  #expect(captured[6] == "1")
-  #expect(captured[4] == "1")
+  #expect(captured[0] == "+16502530000")
+  #expect(captured[5].isEmpty)
+  #expect(captured[6] == "0")
 }
 
 @Test
@@ -158,4 +308,13 @@ func errorDescriptionsIncludeDetails() {
   #expect(error.errorDescription?.contains("Invalid service: weird") == true)
   let chatError = IMsgError.invalidChatTarget("bad")
   #expect(chatError.errorDescription?.contains("Invalid chat target: bad") == true)
+  let dateError = IMsgError.invalidISODate("2024-99-99")
+  #expect(dateError.errorDescription?.contains("Invalid ISO8601 date") == true)
+  let scriptError = IMsgError.appleScriptFailure("nope")
+  #expect(scriptError.errorDescription?.contains("AppleScript failed: nope") == true)
+  let underlying = NSError(domain: "Test", code: 1)
+  let permission = IMsgError.permissionDenied(path: "/tmp/chat.db", underlying: underlying)
+  let permissionDescription = permission.errorDescription ?? ""
+  #expect(permissionDescription.contains("Permission Error") == true)
+  #expect(permissionDescription.contains("/tmp/chat.db") == true)
 }

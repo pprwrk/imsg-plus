@@ -1,6 +1,5 @@
 import Carbon
 import Foundation
-import ScriptingBridge
 
 public enum MessageService: String, Sendable, CaseIterable {
   case auto
@@ -39,29 +38,84 @@ public struct MessageSendOptions: Sendable {
 public struct MessageSender {
   private let normalizer: PhoneNumberNormalizer
   private let runner: (String, [String]) throws -> Void
+  private let attachmentsSubdirectoryProvider: () -> URL
 
   public init() {
     self.normalizer = PhoneNumberNormalizer()
     self.runner = MessageSender.runAppleScript
+    self.attachmentsSubdirectoryProvider = MessageSender.defaultAttachmentsSubdirectory
   }
 
   init(runner: @escaping (String, [String]) throws -> Void) {
     self.normalizer = PhoneNumberNormalizer()
     self.runner = runner
+    self.attachmentsSubdirectoryProvider = MessageSender.defaultAttachmentsSubdirectory
+  }
+
+  init(
+    runner: @escaping (String, [String]) throws -> Void,
+    attachmentsSubdirectoryProvider: @escaping () -> URL
+  ) {
+    self.normalizer = PhoneNumberNormalizer()
+    self.runner = runner
+    self.attachmentsSubdirectoryProvider = attachmentsSubdirectoryProvider
   }
 
   public func send(_ options: MessageSendOptions) throws {
     var resolved = options
-    let chatTarget = resolved.chatIdentifier.isEmpty ? resolved.chatGUID : resolved.chatIdentifier
+    let chatTarget = resolveChatTarget(&resolved)
     let useChat = !chatTarget.isEmpty
     if useChat == false {
       if resolved.region.isEmpty { resolved.region = "US" }
       resolved.recipient = normalizer.normalize(resolved.recipient, region: resolved.region)
       if resolved.service == .auto { resolved.service = .imessage }
-    } else if chatTarget.isEmpty {
-      throw IMsgError.invalidChatTarget("Missing chat identifier or guid")
     }
 
+    if resolved.attachmentPath.isEmpty == false {
+      resolved.attachmentPath = try stageAttachment(at: resolved.attachmentPath)
+    }
+
+    try sendViaAppleScript(resolved, chatTarget: chatTarget, useChat: useChat)
+  }
+
+  private func stageAttachment(at path: String) throws -> String {
+    let expandedPath = (path as NSString).expandingTildeInPath
+    let sourceURL = URL(fileURLWithPath: expandedPath)
+    let fileManager = FileManager.default
+    guard fileManager.fileExists(atPath: sourceURL.path) else {
+      throw IMsgError.appleScriptFailure("Attachment not found at \(sourceURL.path)")
+    }
+
+    let subdirectory = attachmentsSubdirectoryProvider()
+    try fileManager.createDirectory(at: subdirectory, withIntermediateDirectories: true)
+    let attachmentDir = subdirectory.appendingPathComponent(
+      UUID().uuidString,
+      isDirectory: true
+    )
+    try fileManager.createDirectory(at: attachmentDir, withIntermediateDirectories: true)
+    let destination = attachmentDir.appendingPathComponent(
+      sourceURL.lastPathComponent,
+      isDirectory: false
+    )
+    try fileManager.copyItem(at: sourceURL, to: destination)
+    return destination.path
+  }
+
+  private static func defaultAttachmentsSubdirectory() -> URL {
+    let fileManager = FileManager.default
+    let home = fileManager.homeDirectoryForCurrentUser
+    let messagesRoot = home.appendingPathComponent(
+      "Library/Messages/Attachments",
+      isDirectory: true
+    )
+    return messagesRoot.appendingPathComponent("imsg", isDirectory: true)
+  }
+
+  private func sendViaAppleScript(
+    _ resolved: MessageSendOptions,
+    chatTarget: String,
+    useChat: Bool
+  ) throws {
     let script = appleScript()
     let arguments = [
       resolved.recipient,
@@ -72,7 +126,6 @@ public struct MessageSender {
       chatTarget,
       useChat ? "1" : "0",
     ]
-
     try runner(script, arguments)
   }
 
@@ -116,6 +169,36 @@ public struct MessageSender {
           end tell
       end run
       """
+  }
+
+  private func resolveChatTarget(_ options: inout MessageSendOptions) -> String {
+    let guid = options.chatGUID.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !guid.isEmpty {
+      return guid
+    }
+    let identifier = options.chatIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+    if identifier.isEmpty {
+      return ""
+    }
+    if looksLikeHandle(identifier) {
+      if options.recipient.isEmpty {
+        options.recipient = identifier
+      }
+      return ""
+    }
+    return identifier
+  }
+
+  private func looksLikeHandle(_ value: String) -> Bool {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty { return false }
+    let lower = trimmed.lowercased()
+    if lower.hasPrefix("imessage:") || lower.hasPrefix("sms:") || lower.hasPrefix("auto:") {
+      return true
+    }
+    if trimmed.contains("@") { return true }
+    let allowed = CharacterSet(charactersIn: "+0123456789 ()-")
+    return trimmed.rangeOfCharacter(from: allowed.inverted) == nil
   }
 
   private static func runAppleScript(source: String, arguments: [String]) throws {

@@ -14,8 +14,11 @@ public final class MessageStore: @unchecked Sendable {
   private let connection: Connection
   private let queue: DispatchQueue
   private let queueKey = DispatchSpecificKey<Void>()
-  private let hasAttributedBody: Bool
-  private let hasReactionColumns: Bool
+  let hasAttributedBody: Bool
+  let hasReactionColumns: Bool
+  let hasDestinationCallerID: Bool
+  let hasAudioMessageColumn: Bool
+  let hasAttachmentUserInfo: Bool
 
   public init(path: String = MessageStore.defaultPath) throws {
     let normalized = NSString(string: path).expandingTildeInPath
@@ -29,6 +32,15 @@ public final class MessageStore: @unchecked Sendable {
       self.connection.busyTimeout = 5
       self.hasAttributedBody = MessageStore.detectAttributedBody(connection: self.connection)
       self.hasReactionColumns = MessageStore.detectReactionColumns(connection: self.connection)
+      self.hasDestinationCallerID = MessageStore.detectDestinationCallerID(
+        connection: self.connection
+      )
+      self.hasAudioMessageColumn = MessageStore.detectAudioMessageColumn(
+        connection: self.connection
+      )
+      self.hasAttachmentUserInfo = MessageStore.detectAttachmentUserInfo(
+        connection: self.connection
+      )
     } catch {
       throw MessageStore.enhance(error: error, path: normalized)
     }
@@ -38,7 +50,10 @@ public final class MessageStore: @unchecked Sendable {
     connection: Connection,
     path: String,
     hasAttributedBody: Bool? = nil,
-    hasReactionColumns: Bool? = nil
+    hasReactionColumns: Bool? = nil,
+    hasDestinationCallerID: Bool? = nil,
+    hasAudioMessageColumn: Bool? = nil,
+    hasAttachmentUserInfo: Bool? = nil
   ) throws {
     self.path = path
     self.queue = DispatchQueue(label: "imsg.db.test", qos: .userInitiated)
@@ -54,6 +69,21 @@ public final class MessageStore: @unchecked Sendable {
       self.hasReactionColumns = hasReactionColumns
     } else {
       self.hasReactionColumns = MessageStore.detectReactionColumns(connection: connection)
+    }
+    if let hasDestinationCallerID {
+      self.hasDestinationCallerID = hasDestinationCallerID
+    } else {
+      self.hasDestinationCallerID = MessageStore.detectDestinationCallerID(connection: connection)
+    }
+    if let hasAudioMessageColumn {
+      self.hasAudioMessageColumn = hasAudioMessageColumn
+    } else {
+      self.hasAudioMessageColumn = MessageStore.detectAudioMessageColumn(connection: connection)
+    }
+    if let hasAttachmentUserInfo {
+      self.hasAttachmentUserInfo = hasAttachmentUserInfo
+    } else {
+      self.hasAttachmentUserInfo = MessageStore.detectAttachmentUserInfo(connection: connection)
     }
   }
 
@@ -133,99 +163,17 @@ public final class MessageStore: @unchecked Sendable {
     }
   }
 
-  public func messages(chatID: Int64, limit: Int) throws -> [Message] {
-    let bodyColumn = hasAttributedBody ? "m.attributedBody" : "NULL"
-    let sql = """
-      SELECT m.ROWID, m.handle_id, h.id, IFNULL(m.text, '') AS text, m.date, m.is_from_me, m.service,
-             (SELECT COUNT(*) FROM message_attachment_join maj WHERE maj.message_id = m.ROWID) AS attachments,
-             \(bodyColumn) AS body
-      FROM message m
-      JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
-      LEFT JOIN handle h ON m.handle_id = h.ROWID
-      WHERE cmj.chat_id = ?
-      ORDER BY m.date DESC
-      LIMIT ?
-      """
-    return try withConnection { db in
-      var messages: [Message] = []
-      for row in try db.prepare(sql, chatID, limit) {
-        let rowID = int64Value(row[0]) ?? 0
-        let handleID = int64Value(row[1])
-        let sender = stringValue(row[2])
-        let text = stringValue(row[3])
-        let date = appleDate(from: int64Value(row[4]))
-        let isFromMe = boolValue(row[5])
-        let service = stringValue(row[6])
-        let attachments = intValue(row[7]) ?? 0
-        let body = dataValue(row[8])
-        let resolvedText = text.isEmpty ? TypedStreamParser.parseAttributedBody(body) : text
-        messages.append(
-          Message(
-            rowID: rowID,
-            chatID: chatID,
-            sender: sender,
-            text: resolvedText,
-            date: date,
-            isFromMe: isFromMe,
-            service: service,
-            handleID: handleID,
-            attachmentsCount: attachments
-          ))
-      }
-      return messages
+  func withConnection<T>(_ block: (Connection) throws -> T) throws -> T {
+    if DispatchQueue.getSpecific(key: queueKey) != nil {
+      return try block(connection)
+    }
+    return try queue.sync {
+      try block(connection)
     }
   }
+}
 
-  public func messagesAfter(afterRowID: Int64, chatID: Int64?, limit: Int) throws -> [Message] {
-    let bodyColumn = hasAttributedBody ? "m.attributedBody" : "NULL"
-    var sql = """
-      SELECT m.ROWID, cmj.chat_id, m.handle_id, h.id, IFNULL(m.text, '') AS text, m.date, m.is_from_me, m.service,
-             (SELECT COUNT(*) FROM message_attachment_join maj WHERE maj.message_id = m.ROWID) AS attachments,
-             \(bodyColumn) AS body
-      FROM message m
-      LEFT JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
-      LEFT JOIN handle h ON m.handle_id = h.ROWID
-      WHERE m.ROWID > ?
-      """
-    var bindings: [Binding?] = [afterRowID]
-    if let chatID {
-      sql += " AND cmj.chat_id = ?"
-      bindings.append(chatID)
-    }
-    sql += " ORDER BY m.ROWID ASC LIMIT ?"
-    bindings.append(limit)
-
-    return try withConnection { db in
-      var messages: [Message] = []
-      for row in try db.prepare(sql, bindings) {
-        let rowID = int64Value(row[0]) ?? 0
-        let resolvedChatID = int64Value(row[1]) ?? chatID ?? 0
-        let handleID = int64Value(row[2])
-        let sender = stringValue(row[3])
-        let text = stringValue(row[4])
-        let date = appleDate(from: int64Value(row[5]))
-        let isFromMe = boolValue(row[6])
-        let service = stringValue(row[7])
-        let attachments = intValue(row[8]) ?? 0
-        let body = dataValue(row[9])
-        let resolvedText = text.isEmpty ? TypedStreamParser.parseAttributedBody(body) : text
-        messages.append(
-          Message(
-            rowID: rowID,
-            chatID: resolvedChatID,
-            sender: sender,
-            text: resolvedText,
-            date: date,
-            isFromMe: isFromMe,
-            service: service,
-            handleID: handleID,
-            attachmentsCount: attachments
-          ))
-      }
-      return messages
-    }
-  }
-
+extension MessageStore {
   public func attachments(for messageID: Int64) throws -> [AttachmentMeta] {
     let sql = """
       SELECT a.filename, a.transfer_name, a.uti, a.mime_type, a.total_bytes, a.is_sticker
@@ -259,6 +207,47 @@ public final class MessageStore: @unchecked Sendable {
     }
   }
 
+  func audioTranscription(for messageID: Int64) throws -> String? {
+    guard hasAttachmentUserInfo else { return nil }
+    let sql = """
+      SELECT a.user_info
+      FROM message_attachment_join maj
+      JOIN attachment a ON a.ROWID = maj.attachment_id
+      WHERE maj.message_id = ?
+      LIMIT 1
+      """
+    return try withConnection { db in
+      for row in try db.prepare(sql, messageID) {
+        let info = dataValue(row[0])
+        guard !info.isEmpty else { continue }
+        if let transcription = parseAudioTranscription(from: info) {
+          return transcription
+        }
+      }
+      return nil
+    }
+  }
+
+  private func parseAudioTranscription(from data: Data) -> String? {
+    do {
+      let plist = try PropertyListSerialization.propertyList(
+        from: data,
+        options: [],
+        format: nil
+      )
+      guard
+        let dict = plist as? [String: Any],
+        let transcription = dict["audio-transcription"] as? String,
+        !transcription.isEmpty
+      else {
+        return nil
+      }
+      return transcription
+    } catch {
+      return nil
+    }
+  }
+
   public func maxRowID() throws -> Int64 {
     return try withConnection { db in
       let value = try db.scalar("SELECT MAX(ROWID) FROM message")
@@ -266,17 +255,6 @@ public final class MessageStore: @unchecked Sendable {
     }
   }
 
-  private func withConnection<T>(_ block: (Connection) throws -> T) throws -> T {
-    if DispatchQueue.getSpecific(key: queueKey) != nil {
-      return try block(connection)
-    }
-    return try queue.sync {
-      try block(connection)
-    }
-  }
-}
-
-extension MessageStore {
   public func reactions(for messageID: Int64) throws -> [Reaction] {
     guard hasReactionColumns else { return [] }
     // Reactions are stored as messages with associated_message_type in range 2000-2006
@@ -288,9 +266,12 @@ extension MessageStore {
       SELECT r.ROWID, r.associated_message_type, h.id, r.is_from_me, r.date, IFNULL(r.text, '') as text,
              \(bodyColumn) AS body
       FROM message m
-      JOIN message r ON r.associated_message_guid LIKE '%' || m.guid
+      JOIN message r ON r.associated_message_guid = m.guid
+        OR r.associated_message_guid LIKE '%/' || m.guid
       LEFT JOIN handle h ON r.handle_id = h.ROWID
       WHERE m.ROWID = ?
+        AND m.guid IS NOT NULL
+        AND m.guid != ''
         AND r.associated_message_type >= 2000
         AND r.associated_message_type <= 3006
       ORDER BY r.date ASC

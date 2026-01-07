@@ -193,6 +193,16 @@ final class RPCServer {
       }
     } catch let err as RPCError {
       output.sendError(id: id, error: err)
+    } catch let err as IMsgError {
+      switch err {
+      case .invalidService, .invalidChatTarget:
+        output.sendError(
+          id: id,
+          error: RPCError.invalidParams(err.errorDescription ?? "invalid params")
+        )
+      default:
+        output.sendError(id: id, error: RPCError.internalError(err.localizedDescription))
+      }
     } catch {
       output.sendError(id: id, error: RPCError.internalError(error.localizedDescription))
     }
@@ -206,9 +216,6 @@ final class RPCServer {
   private func handleSend(params: [String: Any], id: Any?) throws {
     let text = stringParam(params["text"]) ?? ""
     let file = stringParam(params["file"]) ?? ""
-    if text.isEmpty && file.isEmpty {
-      throw RPCError.invalidParams("text or file is required")
-    }
     let serviceRaw = stringParam(params["service"]) ?? "auto"
     guard let service = MessageService(rawValue: serviceRaw) else {
       throw RPCError.invalidParams("invalid service")
@@ -225,6 +232,10 @@ final class RPCServer {
     }
     if !hasChatTarget && recipient.isEmpty {
       throw RPCError.invalidParams("to is required for direct sends")
+    }
+
+    if text.isEmpty && file.isEmpty {
+      throw RPCError.invalidParams("text or file is required")
     }
 
     var resolvedChatIdentifier = chatIdentifier

@@ -1,9 +1,27 @@
 # Changelog
 
-## Unreleased
-- feat: tapback + emoji reaction support in JSON output (#8) — thanks @tylerwince
+## Unreleased (0.3.2)
+- fix: prefer chat guid for chat_id sends to avoid 1:1 AppleScript errors (thanks @mshuffett)
+- chore: replace pnpm scripts with make targets
+- build: add universal binary build helper
+- ci: switch to make-based lint/test/build
+- docs: update build/test/release instructions
+- fix: stage message attachments in Messages attachments directory (thanks @antons)
+- feat: surface audio message transcriptions (thanks @antons)
 
-## 0.2.2 - Unreleased
+## 0.3.0 - 2026-01-02
+- feat: JSON-RPC server over stdin/stdout (`imsg rpc`) with chats, history, watch, and send
+- feat: group chat metadata in JSON/RPC output (participants, chat identifiers, is_group)
+- feat: tapback + emoji reaction support in JSON output (#8) — thanks @tylerwince
+- enhancement: custom emoji reactions and tapback removal handling
+- feat: include `guid` and `reply_to_guid` metadata in JSON output
+- fix: hide reaction rows from history/watch output and improve reaction matching
+- fix: fill missing sender handles from `destination_caller_id` for outgoing/group messages
+- fix: harden reaction detection
+- docs: add RPC + group chat notes
+- test: expand RPC/command coverage, add reaction fixtures, drop unused stdout helper
+- test: add coverage for sender fallback
+- chore: update copyright year to 2026
 
 ## 0.2.1 - 2025-12-30
 - fix: avoid crash parsing long attributed bodies (>256 bytes) (thanks @tommybananas)

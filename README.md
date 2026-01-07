@@ -19,7 +19,7 @@ A macOS Messages.app CLI to send, read, and stream iMessage/SMS (with attachment
 
 ## Install
 ```bash
-pnpm build
+make build
 # binary at ./bin/imsg
 ```
 
@@ -55,7 +55,9 @@ imsg send --to "+14155551212" --text "hi" --file ~/Desktop/pic.jpg --service ime
 
 ## JSON output
 `imsg chats --json` emits one JSON object per chat with fields: `id`, `name`, `identifier`, `service`, `last_message_at`.
-`imsg history --json` and `imsg watch --json` emit one JSON object per message with fields: `id`, `chat_id`, `sender`, `is_from_me`, `text`, `created_at`, `attachments` (array of metadata with `filename`, `transfer_name`, `uti`, `mime_type`, `total_bytes`, `is_sticker`, `original_path`, `missing`).
+`imsg history --json` and `imsg watch --json` emit one JSON object per message with fields: `id`, `chat_id`, `guid`, `reply_to_guid`, `sender`, `is_from_me`, `text`, `created_at`, `attachments` (array of metadata with `filename`, `transfer_name`, `uti`, `mime_type`, `total_bytes`, `is_sticker`, `original_path`, `missing`), `reactions`.
+
+Note: `reply_to_guid` and `reactions` are read-only metadata.
 
 ## Permissions troubleshooting
 If you see “unable to open database file” or empty output:
@@ -65,15 +67,15 @@ If you see “unable to open database file” or empty output:
 
 ## Testing
 ```bash
-pnpm test
+make test
 ```
 
-Note: pnpm scripts apply a small patch to SQLite.swift to silence a SwiftPM warning about `PrivacyInfo.xcprivacy`.
+Note: `make test` applies a small patch to SQLite.swift to silence a SwiftPM warning about `PrivacyInfo.xcprivacy`.
 
 ## Linting & formatting
 ```bash
-pnpm lint
-pnpm format
+make lint
+make format
 ```
 
 ## Core library
