@@ -6,6 +6,7 @@
 - build: add universal binary build helper
 - ci: switch to make-based lint/test/build
 - docs: update build/test/release instructions
+- fix: stage message attachments in Messages attachments directory (thanks @antons)
 
 ## 0.3.0 - 2026-01-02
 - feat: JSON-RPC server over stdin/stdout (`imsg rpc`) with chats, history, watch, and send
