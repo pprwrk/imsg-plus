@@ -24,13 +24,19 @@ test:
 	scripts/patch-deps.sh
 	swift test
 
-build:
+build: build-helper
 	scripts/generate-version.sh
 	swift package resolve
 	scripts/patch-deps.sh
 	scripts/build-universal.sh
 
-imsg:
+build-helper:
+	@echo "Building imsg-helper (Objective-C)..."
+	@mkdir -p .build/release
+	@clang -fobjc-arc -framework Foundation -o .build/release/imsg-helper Sources/IMsgHelper/main.m
+	@echo "Built imsg-helper successfully"
+
+imsg: build-helper
 	scripts/generate-version.sh
 	swift package resolve
 	scripts/patch-deps.sh
