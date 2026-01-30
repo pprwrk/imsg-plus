@@ -62,14 +62,25 @@ static BOOL IMMessageItem_isEditedMessageHistory(id self, SEL _cmd) {
 }
 
 static void injectCompatibilityMethods(void) {
+    SEL selector = @selector(isEditedMessageHistory);
+
     // Add isEditedMessageHistory to IMMessageItem if it doesn't exist
     Class IMMessageItemClass = NSClassFromString(@"IMMessageItem");
     if (IMMessageItemClass) {
-        SEL selector = @selector(isEditedMessageHistory);
         if (![IMMessageItemClass instancesRespondToSelector:selector]) {
             class_addMethod(IMMessageItemClass, selector,
                           (IMP)IMMessageItem_isEditedMessageHistory, "c@:");
             NSLog(@"[imsg-plus] Added isEditedMessageHistory method to IMMessageItem");
+        }
+    }
+
+    // Also add to IMMessage class (different from IMMessageItem)
+    Class IMMessageClass = NSClassFromString(@"IMMessage");
+    if (IMMessageClass) {
+        if (![IMMessageClass instancesRespondToSelector:selector]) {
+            class_addMethod(IMMessageClass, selector,
+                          (IMP)IMMessageItem_isEditedMessageHistory, "c@:");
+            NSLog(@"[imsg-plus] Added isEditedMessageHistory method to IMMessage");
         }
     }
 }
@@ -287,23 +298,37 @@ static NSDictionary* handleReact(NSInteger requestId, NSDictionary *params) {
     }
 
     @try {
-        // Find the IMChatItem by searching through the chat's items
+        // Search through chatItems to find the message item (needed for tapback methods)
         id chatItem = nil;
 
-        // Try to get chatItems array
         SEL chatItemsSel = @selector(chatItems);
         if ([chat respondsToSelector:chatItemsSel]) {
             NSArray *chatItems = [chat performSelector:chatItemsSel];
             NSLog(@"[imsg-plus] Searching %lu chat items for GUID: %@", (unsigned long)chatItems.count, messageGUID);
 
             for (id item in chatItems) {
-                // Check if item has a matching GUID
+
+                // Check if this item has a matching GUID (may be prefixed like "p:0/GUID")
                 if ([item respondsToSelector:@selector(guid)]) {
                     NSString *itemGUID = [item performSelector:@selector(guid)];
-                    if ([itemGUID isEqualToString:messageGUID]) {
+                    // Match exact GUID or GUID with prefix (e.g., "p:0/GUID")
+                    if ([itemGUID isEqualToString:messageGUID] || [itemGUID hasSuffix:messageGUID]) {
                         chatItem = item;
-                        NSLog(@"[imsg-plus] Found matching chat item: %@", [item class]);
+                        NSLog(@"[imsg-plus] Found message item: %@ (class: %@)", itemGUID, [item class]);
                         break;
+                    }
+                }
+
+                // Also check the underlying _item (IMMessage) property
+                if (!chatItem && [item respondsToSelector:@selector(_item)]) {
+                    id innerItem = [item performSelector:@selector(_item)];
+                    if ([innerItem respondsToSelector:@selector(guid)]) {
+                        NSString *innerGUID = [innerItem performSelector:@selector(guid)];
+                        if ([innerGUID isEqualToString:messageGUID] || [innerGUID hasSuffix:messageGUID]) {
+                            chatItem = item;
+                            NSLog(@"[imsg-plus] Found message item via _item: %@ (class: %@)", innerGUID, [item class]);
+                            break;
+                        }
                     }
                 }
             }
@@ -311,6 +336,17 @@ static NSDictionary* handleReact(NSInteger requestId, NSDictionary *params) {
 
         if (!chatItem) {
             return errorResponse(requestId, [NSString stringWithFormat:@"Chat item not found for GUID: %@", messageGUID]);
+        }
+
+        // If we found a part chat item, try to get the parent message item
+        if ([[chatItem class] isSubclassOfClass:NSClassFromString(@"IMTextMessagePartChatItem")]) {
+            if ([chatItem respondsToSelector:@selector(_parentItem)]) {
+                id parent = [chatItem performSelector:@selector(_parentItem)];
+                if (parent) {
+                    NSLog(@"[imsg-plus] Using parent item: %@ (class: %@)", [parent class], [parent class]);
+                    chatItem = parent;
+                }
+            }
         }
 
         // Try sendMessageAcknowledgment:forChatItem: first
@@ -326,7 +362,7 @@ static NSDictionary* handleReact(NSInteger requestId, NSDictionary *params) {
             [inv setArgument:&chatItem atIndex:3];
             [inv invoke];
 
-            NSLog(@"[imsg-plus] Sent acknowledgment %ld for chat item %@", (long)typeValue, messageGUID);
+            NSLog(@"[imsg-plus] Sent acknowledgment %ld for message %@", (long)typeValue, messageGUID);
             return successResponse(requestId, @{
                 @"handle": handle,
                 @"guid": messageGUID,
@@ -348,7 +384,7 @@ static NSDictionary* handleReact(NSInteger requestId, NSDictionary *params) {
             [inv setArgument:&chatItem atIndex:3];
             [inv invoke];
 
-            NSLog(@"[imsg-plus] Sent tapback %ld for chat item %@", (long)typeValue, messageGUID);
+            NSLog(@"[imsg-plus] Sent tapback %ld for message %@", (long)typeValue, messageGUID);
             return successResponse(requestId, @{
                 @"handle": handle,
                 @"guid": messageGUID,
