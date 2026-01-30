@@ -117,6 +117,7 @@ imsg-plus rpc [--no-auto-read] [--no-auto-typing]
 | `messages.history` | Fetch message history for a chat |
 | `messages.markRead` | Mark messages as read |
 | `send` | Send a message |
+| `tapback.send` | Send or remove a tapback reaction |
 | `typing.set` | Show/hide typing indicator |
 | `watch.subscribe` | Subscribe to new messages |
 | `watch.unsubscribe` | Unsubscribe from messages |
@@ -141,7 +142,21 @@ imsg-plus rpc --no-auto-read --no-auto-typing
 ```json
 {"jsonrpc":"2.0","method":"chats.list","params":{"limit":5},"id":1}
 {"jsonrpc":"2.0","method":"send","params":{"to":"+14155551212","text":"hello"},"id":2}
+{"jsonrpc":"2.0","method":"tapback.send","params":{"handle":"+14155551212","guid":"ABC-123","type":"love"},"id":3}
 ```
+
+### `send` chat routing
+
+The `send` method supports multiple ways to target a chat:
+
+| Parameter | Description |
+|---|---|
+| `to` | Phone number or email (direct send to a recipient) |
+| `chat_id` | Numeric chat ID from `chats.list` |
+| `chat_identifier` | Chat identifier string (e.g., `+14155551212`) |
+| `chat_guid` | Full chat GUID (e.g., `iMessage;-;+14155551212`) |
+
+Use **either** `to` **or** one of the `chat_*` parameters — not both. The `chat_*` params are useful for replying to existing chats (especially group chats) where you already know the chat ID from a `chats.list` or `watch.subscribe` response.
 
 ## Attachment notes
 `--attachments` prints per-attachment lines with name, MIME, missing flag, and resolved path (tilde expanded). Only metadata is shown; files aren't copied.

@@ -21,9 +21,9 @@ enum TypingCommand {
       )
     ),
     usageExamples: [
-      "imsg typing --handle +14155551234 --state on",
-      "imsg typing --handle john@example.com --state off",
-      "imsg typing --handle chat123456789 --state on"
+      "imsg-plus typing --handle +14155551234 --state on",
+      "imsg-plus typing --handle john@example.com --state off",
+      "imsg-plus typing --handle chat123456789 --state on"
     ]
   ) { values, runtime in
     try await run(values: values, runtime: runtime)

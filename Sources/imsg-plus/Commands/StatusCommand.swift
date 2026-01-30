@@ -13,7 +13,7 @@ enum StatusCommand {
       """,
     signature: CommandSignatures.withRuntimeFlags(CommandSignature()),
     usageExamples: [
-      "imsg status"
+      "imsg-plus status"
     ]
   ) { values, runtime in
     try await run(values: values, runtime: runtime)
@@ -45,9 +45,9 @@ enum StatusCommand {
         print("  ✅ Available - IMCore framework loaded")
         print()
         print("Available commands:")
-        print("  • imsg typing <handle> <state>")
-        print("  • imsg read <handle>")
-        print("  • imsg react <handle> <guid> <type>")
+        print("  • imsg-plus typing <handle> <state>")
+        print("  • imsg-plus read <handle>")
+        print("  • imsg-plus react <handle> <guid> <type>")
       } else {
         print("  ⚠️  Not available")
         print()
@@ -62,7 +62,7 @@ enum StatusCommand {
         print("     - System Settings → Privacy & Security → Full Disk Access")
         print("     - Add Terminal or your terminal app")
         print()
-        print("  3. Restart imsg")
+        print("  3. Restart imsg-plus")
         print()
         print("Note: Basic messaging features work without these steps.")
       }

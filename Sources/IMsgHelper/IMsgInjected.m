@@ -158,40 +158,71 @@ static id findChat(NSString *identifier) {
         }
     }
 
-    // Method 3: Iterate all chats and match by participant
+    // Method 3: Iterate all chats and match by participant (exact matching only)
     SEL allChatsSel = @selector(allExistingChats);
     if ([registry respondsToSelector:allChatsSel]) {
         NSArray *allChats = [registry performSelector:allChatsSel];
         NSLog(@"[imsg-plus] Searching %lu chats for identifier: %@", (unsigned long)allChats.count, identifier);
 
+        // Normalize the search identifier (strip non-digit chars for phone numbers)
+        NSString *normalizedIdentifier = nil;
+        if ([identifier hasPrefix:@"+"] || [identifier hasPrefix:@"1"] ||
+            [[NSCharacterSet decimalDigitCharacterSet] characterIsMember:[identifier characterAtIndex:0]]) {
+            NSMutableString *digits = [NSMutableString string];
+            for (NSUInteger i = 0; i < identifier.length; i++) {
+                unichar c = [identifier characterAtIndex:i];
+                if ([[NSCharacterSet decimalDigitCharacterSet] characterIsMember:c]) {
+                    [digits appendFormat:@"%C", c];
+                }
+            }
+            normalizedIdentifier = [digits copy];
+        }
+
         for (id aChat in allChats) {
-            // Check GUID
+            // Check GUID — exact match only
             if ([aChat respondsToSelector:@selector(guid)]) {
                 NSString *chatGUID = [aChat performSelector:@selector(guid)];
-                if ([chatGUID containsString:identifier]) {
-                    NSLog(@"[imsg-plus] Found chat by GUID match: %@", chatGUID);
+                if ([chatGUID isEqualToString:identifier]) {
+                    NSLog(@"[imsg-plus] Found chat by GUID exact match: %@", chatGUID);
                     return aChat;
                 }
             }
 
-            // Check chatIdentifier
+            // Check chatIdentifier — exact match only
             if ([aChat respondsToSelector:@selector(chatIdentifier)]) {
                 NSString *chatId = [aChat performSelector:@selector(chatIdentifier)];
-                if ([chatId isEqualToString:identifier] || [chatId containsString:identifier]) {
-                    NSLog(@"[imsg-plus] Found chat by chatIdentifier match: %@", chatId);
+                if ([chatId isEqualToString:identifier]) {
+                    NSLog(@"[imsg-plus] Found chat by chatIdentifier exact match: %@", chatId);
                     return aChat;
                 }
             }
 
-            // Check participants
+            // Check participants — exact or normalized phone match
             if ([aChat respondsToSelector:@selector(participants)]) {
                 NSArray *participants = [aChat performSelector:@selector(participants)];
                 for (id handle in participants) {
                     if ([handle respondsToSelector:@selector(ID)]) {
                         NSString *handleID = [handle performSelector:@selector(ID)];
-                        if ([handleID isEqualToString:identifier] || [handleID containsString:identifier]) {
-                            NSLog(@"[imsg-plus] Found chat by participant: %@", handleID);
+                        // Exact match
+                        if ([handleID isEqualToString:identifier]) {
+                            NSLog(@"[imsg-plus] Found chat by participant exact match: %@", handleID);
                             return aChat;
+                        }
+                        // Normalized phone number match (compare digits only)
+                        if (normalizedIdentifier && normalizedIdentifier.length >= 10) {
+                            NSMutableString *handleDigits = [NSMutableString string];
+                            for (NSUInteger i = 0; i < handleID.length; i++) {
+                                unichar c = [handleID characterAtIndex:i];
+                                if ([[NSCharacterSet decimalDigitCharacterSet] characterIsMember:c]) {
+                                    [handleDigits appendFormat:@"%C", c];
+                                }
+                            }
+                            if (handleDigits.length >= 10 &&
+                                [handleDigits hasSuffix:normalizedIdentifier] ||
+                                [normalizedIdentifier hasSuffix:handleDigits]) {
+                                NSLog(@"[imsg-plus] Found chat by normalized phone match: %@ ~ %@", handleID, identifier);
+                                return aChat;
+                            }
                         }
                     }
                 }
@@ -557,6 +588,22 @@ static NSDictionary* handleReact(NSInteger requestId, NSDictionary *params) {
     [loadInv invoke];
 
     NSLog(@"[imsg-plus] loadMessageWithGUID invoked, waiting for async completion...");
+
+    // Set a 5-second timeout: if the completion block never fires (e.g. invalid GUID),
+    // write an error response so the CLI doesn't hang indefinitely.
+    __block BOOL completionFired = NO;
+    // Patch the completion block to track if it fired
+    void (^originalBlock)(id) = completionBlock;
+    completionBlock = nil; // Release our reference; loadInv already retained it
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        // Check if response file has been written (completion fired)
+        NSData *responseData = [NSData dataWithContentsOfFile:kResponseFile];
+        if (!responseData || responseData.length < 3) {
+            NSLog(@"[imsg-plus] ⚠️ React completion timeout after 5s for GUID: %@", messageGUID);
+            writeResponseToFile(errorResponse(requestId,
+                [NSString stringWithFormat:@"Timeout: message GUID not found or completion never fired: %@", messageGUID]));
+        }
+    });
 
     // Return nil to signal async handling — processCommandFile will check for this
     return nil;

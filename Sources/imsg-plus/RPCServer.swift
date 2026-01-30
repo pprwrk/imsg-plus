@@ -226,6 +226,8 @@ final class RPCServer {
         try await handleTypingSet(params: params, id: id)
       case "messages.markRead":
         try await handleMarkRead(params: params, id: id)
+      case "tapback.send":
+        try await handleTapbackSend(params: params, id: id)
       default:
         output.sendError(id: id, error: RPCError.methodNotFound(method))
       }
@@ -380,40 +382,39 @@ final class RPCServer {
     respond(id: id, result: ["ok": true])
   }
 
+  private func handleTapbackSend(params: [String: Any], id: Any?) async throws {
+    guard let handle = stringParam(params["handle"]), !handle.isEmpty else {
+      throw RPCError.invalidParams("handle is required")
+    }
+    guard let guid = stringParam(params["guid"]), !guid.isEmpty else {
+      throw RPCError.invalidParams("guid is required (message GUID to react to)")
+    }
+    guard let typeStr = stringParam(params["type"]), !typeStr.isEmpty else {
+      throw RPCError.invalidParams("type is required (love, thumbsup, thumbsdown, haha, emphasis, question)")
+    }
+    let remove = boolParam(params["remove"]) ?? false
+    guard let tapbackType = TapbackType.from(string: typeStr, remove: remove) else {
+      throw RPCError.invalidParams("invalid reaction type: '\(typeStr)'. Valid: love, thumbsup, thumbsdown, haha, emphasis, question")
+    }
+    guard bridgeAvailable else {
+      throw RPCError.internalError("IMCoreBridge not available")
+    }
+    try await IMCoreBridge.shared.sendTapback(to: handle, messageGUID: guid, type: tapbackType)
+    respond(id: id, result: [
+      "ok": true,
+      "handle": handle,
+      "guid": guid,
+      "type": tapbackType.displayName,
+      "action": remove ? "removed" : "added",
+    ])
+  }
+
   /// Resolve the best handle for typing/read from send params
   private func resolveTypingHandle(recipient: String, chatIdentifier: String, chatGUID: String) -> String? {
     if !recipient.isEmpty { return recipient }
     if !chatIdentifier.isEmpty { return chatIdentifier }
     if !chatGUID.isEmpty { return chatGUID }
     return nil
-  }
-
-  /// Fire auto-read receipt for an incoming message (called from watch notification)
-  private func autoMarkRead(message: [String: Any]) {
-    guard autoRead, bridgeAvailable else { return }
-    guard let isFromMe = message["is_from_me"] as? Bool, !isFromMe else { return }
-
-    // Resolve the handle to mark as read
-    let handle: String? =
-      stringParam(message["chat_identifier"])
-      ?? stringParam(message["sender"])
-    guard let handle, !handle.isEmpty else { return }
-
-    let localVerbose = verbose
-    Task {
-      do {
-        // Small delay to feel natural
-        try await Task.sleep(nanoseconds: 1_000_000_000)
-        try await IMCoreBridge.shared.markAsRead(handle: handle)
-        if localVerbose {
-          FileHandle.standardError.write(Data("[auto-read] marked read for \(handle)\n".utf8))
-        }
-      } catch {
-        if localVerbose {
-          FileHandle.standardError.write(Data("[auto-read] error: \(error)\n".utf8))
-        }
-      }
-    }
   }
 
 }

@@ -35,10 +35,10 @@ enum ReactCommand {
       )
     ),
     usageExamples: [
-      "imsg react --handle +14155551234 --guid ABC123-456 --type love",
-      "imsg react --handle john@example.com --guid XYZ789 --type thumbsup",
-      "imsg react --handle +14155551234 --guid ABC123-456 --type haha --remove",
-      "imsg react --handle chat123456789 --guid MSG-001 --type question"
+      "imsg-plus react --handle +14155551234 --guid ABC123-456 --type love",
+      "imsg-plus react --handle john@example.com --guid XYZ789 --type thumbsup",
+      "imsg-plus react --handle +14155551234 --guid ABC123-456 --type haha --remove",
+      "imsg-plus react --handle chat123456789 --guid MSG-001 --type question"
     ]
   ) { values, runtime in
     try await run(values: values, runtime: runtime)

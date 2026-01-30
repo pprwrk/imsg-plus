@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-APP_NAME="imsg"
+APP_NAME="imsg-plus"
 ENTITLEMENTS="${ROOT}/Resources/imsg.entitlements"
 OUTPUT_DIR="${OUTPUT_DIR:-${ROOT}/bin}"
 ARCHES_VALUE=${ARCHES:-"arm64 x86_64"}
