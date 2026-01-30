@@ -7,14 +7,14 @@ public enum TapbackType: Int, Sendable {
   case haha = 2003
   case emphasis = 2004
   case question = 2005
-  
+
   case removeLove = 3000
   case removeThumbsUp = 3001
   case removeThumbsDown = 3002
   case removeHaha = 3003
   case removeEmphasis = 3004
   case removeQuestion = 3005
-  
+
   public var displayName: String {
     switch self {
     case .love, .removeLove: return "love"
@@ -25,7 +25,7 @@ public enum TapbackType: Int, Sendable {
     case .question, .removeQuestion: return "question"
     }
   }
-  
+
   public static func from(string: String, remove: Bool = false) -> TapbackType? {
     let offset = remove ? 1000 : 0
     switch string.lowercased() {
@@ -42,20 +42,21 @@ public enum TapbackType: Int, Sendable {
 
 public enum IMCoreBridgeError: Error, CustomStringConvertible {
   case frameworkNotAvailable
-  case helperNotFound
-  case helperExecutionFailed(String)
+  case dylibNotFound
+  case connectionFailed(String)
   case chatNotFound(String)
   case messageNotFound(String)
   case operationFailed(String)
-  
+
   public var description: String {
     switch self {
     case .frameworkNotAvailable:
       return "IMCore framework not available. Advanced features require SIP disabled."
-    case .helperNotFound:
-      return "imsg-helper binary not found. Build with: cd Sources/IMsgHelper && make"
-    case .helperExecutionFailed(let error):
-      return "Helper execution failed: \(error)"
+    case .dylibNotFound:
+      return
+        "imsg-plus-helper.dylib not found. Build with: make build-dylib"
+    case .connectionFailed(let error):
+      return "Connection to Messages.app failed: \(error)"
     case .chatNotFound(let id):
       return "Chat not found: \(id)"
     case .messageNotFound(let guid):
@@ -66,107 +67,77 @@ public enum IMCoreBridgeError: Error, CustomStringConvertible {
   }
 }
 
+/// Bridge to IMCore via DYLD injection into Messages.app
+///
+/// This bridge communicates with an injected dylib inside Messages.app
+/// via Unix socket IPC. The dylib has full access to IMCore because
+/// it runs within the Messages.app context with proper entitlements.
 public final class IMCoreBridge: @unchecked Sendable {
   public static let shared = IMCoreBridge()
-  
-  private let helperPath: String
-  private let queue = DispatchQueue(label: "imsg.imcore.bridge")
-  
-  public private(set) var isAvailable: Bool = false
-  
-  private init() {
-    // Look for helper binary in multiple locations
+
+  private let launcher = MessagesLauncher.shared
+
+  public var isAvailable: Bool {
+    // Check if dylib exists
     let possiblePaths = [
-      ".build/release/imsg-helper",
-      ".build/debug/imsg-helper",
-      "/usr/local/bin/imsg-helper",
-      Bundle.main.bundlePath + "/../imsg-helper"
+      ".build/release/imsg-plus-helper.dylib",
+      ".build/debug/imsg-plus-helper.dylib",
+      "/usr/local/lib/imsg-plus-helper.dylib",
     ]
-    
+
     for path in possiblePaths {
       if FileManager.default.fileExists(atPath: path) {
-        self.helperPath = path
-        self.isAvailable = true
-        return
+        return true
       }
     }
-    
-    // If not found, use default path
-    self.helperPath = ".build/release/imsg-helper"
-    self.isAvailable = false
+    return false
   }
-  
-  private func callHelper(action: String, params: [String: Any]) async throws -> [String: Any] {
-    guard FileManager.default.fileExists(atPath: helperPath) else {
-      throw IMCoreBridgeError.helperNotFound
-    }
-    
-    let command: [String: Any] = [
-      "action": action,
-      "params": params
-    ]
-    
-    let jsonData = try JSONSerialization.data(withJSONObject: command, options: [])
-    
-    return try await withCheckedThrowingContinuation { continuation in
-      queue.async {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: self.helperPath)
-        
-        let inputPipe = Pipe()
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        
-        process.standardInput = inputPipe
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-        
-        do {
-          try process.run()
-          
-          // Send JSON command
-          inputPipe.fileHandleForWriting.write(jsonData)
-          inputPipe.fileHandleForWriting.closeFile()
-          
-          // Wait for completion
-          process.waitUntilExit()
-          
-          // Read output
-          let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-          
-          if let response = try? JSONSerialization.jsonObject(with: outputData, options: []) as? [String: Any] {
-            if response["success"] as? Bool == true {
-              continuation.resume(returning: response)
-            } else {
-              let error = response["error"] as? String ?? "Unknown error"
-              continuation.resume(throwing: IMCoreBridgeError.operationFailed(error))
-            }
-          } else {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorString = String(data: errorData, encoding: .utf8) ?? "Unknown error"
-            continuation.resume(throwing: IMCoreBridgeError.helperExecutionFailed(errorString))
-          }
-        } catch {
-          continuation.resume(throwing: IMCoreBridgeError.helperExecutionFailed(error.localizedDescription))
+
+  private init() {}
+
+  /// Send a command to the injected helper via MessagesLauncher
+  private func sendCommand(action: String, params: [String: Any]) async throws -> [String: Any] {
+    do {
+      let response = try await launcher.sendCommand(action: action, params: params)
+
+      if response["success"] as? Bool == true {
+        return response
+      } else {
+        let error = response["error"] as? String ?? "Unknown error"
+
+        // Map specific errors
+        if error.contains("Chat not found") {
+          let handle = params["handle"] as? String ?? "unknown"
+          throw IMCoreBridgeError.chatNotFound(handle)
+        } else if error.contains("Message not found") {
+          let guid = params["guid"] as? String ?? "unknown"
+          throw IMCoreBridgeError.messageNotFound(guid)
         }
+
+        throw IMCoreBridgeError.operationFailed(error)
       }
+    } catch let error as MessagesLauncherError {
+      throw IMCoreBridgeError.connectionFailed(error.description)
     }
   }
-  
+
+  /// Set typing indicator for a conversation
   public func setTyping(for handle: String, typing: Bool) async throws {
     let params = [
       "handle": handle,
-      "typing": typing
+      "typing": typing,
     ] as [String: Any]
-    
-    _ = try await callHelper(action: "typing", params: params)
+
+    _ = try await sendCommand(action: "typing", params: params)
   }
-  
+
+  /// Mark all messages as read in a conversation
   public func markAsRead(handle: String) async throws {
     let params = ["handle": handle]
-    _ = try await callHelper(action: "read", params: params)
+    _ = try await sendCommand(action: "read", params: params)
   }
-  
+
+  /// Send a tapback reaction to a message
   public func sendTapback(
     to handle: String,
     messageGUID: String,
@@ -175,56 +146,68 @@ public final class IMCoreBridge: @unchecked Sendable {
     let params = [
       "handle": handle,
       "guid": messageGUID,
-      "type": type.rawValue
+      "type": type.rawValue,
     ] as [String: Any]
-    
-    _ = try await callHelper(action: "react", params: params)
+
+    _ = try await sendCommand(action: "react", params: params)
   }
-  
+
+  /// List all available chats (for debugging)
+  public func listChats() async throws -> [[String: Any]] {
+    let response = try await sendCommand(action: "list_chats", params: [:])
+    return response["chats"] as? [[String: Any]] ?? []
+  }
+
+  /// Check the availability and status of the IMCore bridge
   public func checkAvailability() -> (available: Bool, message: String) {
-    if !FileManager.default.fileExists(atPath: helperPath) {
-      return (false, """
-        Helper binary not found. To build:
-        1. cd Sources/IMsgHelper
-        2. make
-        3. Restart imsg
-        
-        Note: Advanced features require:
-        - SIP disabled (for IMCore access)
-        - Full Disk Access granted to Terminal
-        """)
-    }
-    
-    // Try to check status via helper
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: helperPath)
-    
-    let inputPipe = Pipe()
-    let outputPipe = Pipe()
-    
-    process.standardInput = inputPipe
-    process.standardOutput = outputPipe
-    
-    let command = ["action": "status", "params": [:]] as [String: Any]
-    guard let jsonData = try? JSONSerialization.data(withJSONObject: command, options: []) else {
-      return (false, "Failed to create status check command")
-    }
-    
-    do {
-      try process.run()
-      inputPipe.fileHandleForWriting.write(jsonData)
-      inputPipe.fileHandleForWriting.closeFile()
-      process.waitUntilExit()
-      
-      let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-      if let response = try? JSONSerialization.jsonObject(with: outputData, options: []) as? [String: Any],
-         response["success"] as? Bool == true {
-        return (true, "IMCore framework loaded. Advanced features available.")
-      } else {
-        return (false, "IMCore framework not accessible. Ensure SIP is disabled.")
+    // Check if dylib exists
+    let possiblePaths = [
+      ".build/release/imsg-plus-helper.dylib",
+      ".build/debug/imsg-plus-helper.dylib",
+      "/usr/local/lib/imsg-plus-helper.dylib",
+    ]
+
+    var dylibPath: String?
+    for path in possiblePaths {
+      if FileManager.default.fileExists(atPath: path) {
+        dylibPath = path
+        break
       }
-    } catch {
-      return (false, "Helper binary exists but failed to execute: \(error.localizedDescription)")
     }
+
+    guard dylibPath != nil else {
+      return (
+        false,
+        """
+        imsg-plus-helper.dylib not found. To build:
+        1. make build-dylib
+        2. Restart imsg
+
+        Note: Advanced features require:
+        - SIP disabled (for DYLD injection)
+        - Full Disk Access granted to Terminal
+        """
+      )
+    }
+
+    // Check if already connected
+    if launcher.isInjectedAndReady() {
+      return (true, "Connected to Messages.app. IMCore features available.")
+    }
+
+    // Try to get status
+    do {
+      try launcher.ensureRunning()
+      return (true, "Messages.app launched with injection. IMCore features available.")
+    } catch let error as MessagesLauncherError {
+      return (false, error.description)
+    } catch {
+      return (false, "Failed to connect to Messages.app: \(error.localizedDescription)")
+    }
+  }
+
+  /// Get detailed status from the injected helper
+  public func getStatus() async throws -> [String: Any] {
+    return try await sendCommand(action: "status", params: [:])
   }
 }

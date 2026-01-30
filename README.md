@@ -96,15 +96,64 @@ If you see "unable to open database file" or empty output:
 3) For send, allow the terminal under System Settings → Privacy & Security → Automation → Messages.
 
 ## Advanced Features Setup (imsg-plus)
-The new typing, read receipt, and tapback features require additional setup:
 
-1. **Check availability**: Run `imsg status` to see if features are available
-2. **For full functionality** (optional):
-   - May require disabling System Integrity Protection (SIP)
-   - The Objective-C helper (`imsg-helper`) attempts to load IMCore framework
-   - Basic messaging works without these steps
+The new typing, read receipt, and tapback features require injecting a dylib into Messages.app to access Apple's private IMCore framework.
 
-**Note**: These features use Apple's private IMCore framework via an Objective-C helper. They're intended for personal use and testing.
+### Prerequisites
+1. **Disable SIP** (System Integrity Protection):
+   - Reboot into Recovery Mode (hold Cmd+R during startup)
+   - Open Terminal from the Utilities menu
+   - Run: `csrutil disable`
+   - Reboot normally
+
+2. **Full Disk Access**: Grant your terminal FDA permission in System Settings → Privacy & Security → Full Disk Access
+
+3. **Build the dylib**:
+   ```bash
+   make build
+   # Creates .build/release/imsg-plus-helper.dylib
+   ```
+
+### Usage
+Messages.app must be launched with the dylib injected:
+
+```bash
+# 1. Quit Messages.app if running
+killall Messages 2>/dev/null
+
+# 2. Launch with dylib injection
+DYLD_INSERT_LIBRARIES=$PWD/.build/release/imsg-plus-helper.dylib \
+  /System/Applications/Messages.app/Contents/MacOS/Messages &
+
+# 3. Verify it's working
+imsg status
+# Should show: "✅ Available - IMCore framework loaded"
+
+# 4. Use advanced features
+imsg typing --handle "user@example.com" --state on
+imsg read --handle "user@example.com"
+```
+
+### Troubleshooting
+
+**"Advanced features: ❌ Not available"**
+- Ensure Messages.app was launched with `DYLD_INSERT_LIBRARIES`
+- Check IPC files exist: `ls ~/Library/Containers/com.apple.MobileSMS/Data/.imsg-plus-*`
+- Restart Messages.app with dylib injection
+
+**Typing indicator doesn't appear**
+- Typing bubbles show on the *recipient's* device, not yours
+- Test with another device or ask the recipient to confirm
+
+**Conflicts with BlueBubbles**
+- Only one dylib can inject into Messages.app at a time
+- Disable BlueBubbles before using imsg-plus advanced features
+
+**Security Warning**
+- These features use Apple's private IMCore framework
+- Requires SIP disabled, which reduces system security
+- Intended for personal use and testing only
+- Re-enable SIP when not needed: `csrutil enable` (from Recovery Mode)
 
 ## Testing
 ```bash
