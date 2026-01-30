@@ -74,14 +74,14 @@ install: build-dylib
 	scripts/patch-deps.sh
 	swift build -c release --product imsg-plus
 	@echo "Installing imsg-plus to /usr/local/bin..."
-	@mkdir -p /usr/local/bin
+	@mkdir -p /usr/local/bin /usr/local/lib
 	@cp .build/release/imsg-plus /usr/local/bin/imsg-plus
+	@cp .build/release/imsg-plus-helper.dylib /usr/local/lib/imsg-plus-helper.dylib
 	@echo "✅ Installed! You can now run 'imsg-plus' from anywhere"
 	@echo ""
 	@echo "To enable advanced features (typing, read receipts, tapbacks):"
 	@echo "  1. Disable SIP (System Integrity Protection)"
-	@echo "  2. Run: make build-dylib"
-	@echo "  3. Launch Messages with: DYLD_INSERT_LIBRARIES=\$$(pwd)/.build/release/imsg-plus-helper.dylib /System/Applications/Messages.app/Contents/MacOS/Messages &"
+	@echo "  2. Launch Messages with injection: imsg-plus launch"
 
 uninstall:
 	@echo "Removing imsg-plus from /usr/local/bin..."
