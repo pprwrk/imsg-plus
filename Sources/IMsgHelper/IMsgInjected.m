@@ -19,6 +19,7 @@ static NSString *kCommandFile = nil;
 static NSString *kResponseFile = nil;
 static NSString *kLockFile = nil;
 static dispatch_source_t fileWatchSource = nil;
+static NSTimer *fileWatchTimer = nil;
 static int lockFd = -1;
 
 static void initFilePaths(void) {
@@ -337,24 +338,12 @@ static NSDictionary* handleReact(NSInteger requestId, NSDictionary *params) {
             return errorResponse(requestId, [NSString stringWithFormat:@"Chat item not found for GUID: %@", messageGUID]);
         }
 
-        // Get the parent item (IMMessageItem) from the chat item if it's a part item
-        // Methods work better with IMMessageItem than IMTextMessagePartChatItem
+        // Use the chatItem directly — sendMessageAcknowledgment:forChatItem: expects
+        // an IMChatItem subclass (e.g., IMTextMessagePartChatItem), NOT an IMMessageItem.
         id targetItem = chatItem;
-        if ([[chatItem class] isSubclassOfClass:NSClassFromString(@"IMTextMessagePartChatItem")]) {
-            if ([chatItem respondsToSelector:@selector(_parentItem)]) {
-                id parent = [chatItem performSelector:@selector(_parentItem)];
-                if (parent) {
-                    NSLog(@"[imsg-plus] Using parent item: %@ (class: %@)", [parent class], [parent class]);
-                    targetItem = parent;
-                } else {
-                    NSLog(@"[imsg-plus] No parent item, using part item: %@ (class: %@)", [chatItem class], [chatItem class]);
-                }
-            }
-        } else {
-            NSLog(@"[imsg-plus] Using chat item directly: %@ (class: %@)", [chatItem class], [chatItem class]);
-        }
+        NSLog(@"[imsg-plus] Using chat item: %@ (class: %@)", [targetItem respondsToSelector:@selector(guid)] ? [targetItem performSelector:@selector(guid)] : @"?", [targetItem class]);
 
-        NSInteger typeValue = [type integerValue];
+        long long typeValue = [type longLongValue];
 
         // Define all possible selectors (in order of preference)
         SEL modernSel = @selector(sendMessageAcknowledgment:forChatItem:withAssociatedMessageInfo:);
@@ -382,7 +371,7 @@ static NSDictionary* handleReact(NSInteger requestId, NSDictionary *params) {
         if ([chat respondsToSelector:modernSel]) {
             @try {
                 NSLog(@"[imsg-plus] Trying modern 3-param with chat item using objc_msgSend");
-                void (*msgSend)(id, SEL, NSInteger, id, id) = (void *)objc_msgSend;
+                void (*msgSend)(id, SEL, long long, id, id) = (void *)objc_msgSend;
                 msgSend(chat, modernSel, typeValue, targetItem, nil);
                 NSLog(@"[imsg-plus] ✅ Success via modern 3-param method");
                 return successResponse(requestId, @{
@@ -401,7 +390,7 @@ static NSDictionary* handleReact(NSInteger requestId, NSDictionary *params) {
         if ([chat respondsToSelector:legacySel]) {
             @try {
                 NSLog(@"[imsg-plus] Trying legacy 3-param with chat item using objc_msgSend");
-                void (*msgSend)(id, SEL, NSInteger, id, id) = (void *)objc_msgSend;
+                void (*msgSend)(id, SEL, long long, id, id) = (void *)objc_msgSend;
                 msgSend(chat, legacySel, typeValue, targetItem, nil);
                 NSLog(@"[imsg-plus] ✅ Success via legacy 3-param method");
                 return successResponse(requestId, @{
@@ -420,7 +409,7 @@ static NSDictionary* handleReact(NSInteger requestId, NSDictionary *params) {
         if ([chat respondsToSelector:twoParamSel]) {
             @try {
                 NSLog(@"[imsg-plus] Trying 2-param with chat item using objc_msgSend");
-                void (*msgSend)(id, SEL, NSInteger, id) = (void *)objc_msgSend;
+                void (*msgSend)(id, SEL, long long, id) = (void *)objc_msgSend;
                 msgSend(chat, twoParamSel, typeValue, targetItem);
                 NSLog(@"[imsg-plus] ✅ Success via 2-param method");
                 return successResponse(requestId, @{
@@ -439,7 +428,7 @@ static NSDictionary* handleReact(NSInteger requestId, NSDictionary *params) {
         if ([chat respondsToSelector:tapbackSel]) {
             @try {
                 NSLog(@"[imsg-plus] Trying sendTapback with chat item using objc_msgSend");
-                void (*msgSend)(id, SEL, NSInteger, id) = (void *)objc_msgSend;
+                void (*msgSend)(id, SEL, long long, id) = (void *)objc_msgSend;
                 msgSend(chat, tapbackSel, typeValue, targetItem);
                 NSLog(@"[imsg-plus] ✅ Success via sendTapback method");
                 return successResponse(requestId, @{
@@ -604,15 +593,8 @@ static void processCommandFile(void) {
             return;
         }
 
-        // Process command on main queue for IMCore access
-        __block NSDictionary *result = nil;
-        if ([NSThread isMainThread]) {
-            result = processCommand(command);
-        } else {
-            dispatch_sync(dispatch_get_main_queue(), ^{
-                result = processCommand(command);
-            });
-        }
+        // Timer runs on main run loop, so we're already on the main thread for IMCore access
+        NSDictionary *result = processCommand(command);
 
         // Write response
         NSData *responseData = [NSJSONSerialization dataWithJSONObject:result options:NSJSONWritingPrettyPrinted error:nil];
@@ -644,13 +626,11 @@ static void startFileWatcher(void) {
         write(lockFd, pidStr.UTF8String, pidStr.length);
     }
 
-    // Watch command file for changes using a timer (file watching is complex in sandbox)
-    dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0));
-    dispatch_source_set_timer(timer, DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC, 50 * NSEC_PER_MSEC);
-
+    // Watch command file for changes using NSTimer on the main run loop.
+    // dispatch_source timers get deallocated in injected dylib contexts,
+    // but NSTimer tied to the main run loop survives reliably.
     __block NSDate *lastModified = nil;
-
-    dispatch_source_set_event_handler(timer, ^{
+    NSTimer *timer = [NSTimer timerWithTimeInterval:0.1 repeats:YES block:^(NSTimer * _Nonnull t) {
         @autoreleasepool {
             NSDictionary *attrs = [[NSFileManager defaultManager] attributesOfItemAtPath:kCommandFile error:nil];
             NSDate *modDate = attrs[NSFileModificationDate];
@@ -664,10 +644,10 @@ static void startFileWatcher(void) {
                 }
             }
         }
-    });
-
-    dispatch_resume(timer);
-    fileWatchSource = timer;
+    }];
+    [[NSRunLoop mainRunLoop] addTimer:timer forMode:NSRunLoopCommonModes];
+    fileWatchTimer = timer;  // Prevent deallocation
+    fileWatchSource = nil;   // No longer using dispatch_source
 
     NSLog(@"[imsg-plus] File watcher started, ready for commands");
 }
@@ -720,6 +700,10 @@ __attribute__((destructor))
 static void injectedCleanup(void) {
     NSLog(@"[imsg-plus] Cleaning up...");
 
+    if (fileWatchTimer) {
+        [fileWatchTimer invalidate];
+        fileWatchTimer = nil;
+    }
     if (fileWatchSource) {
         dispatch_source_cancel(fileWatchSource);
         fileWatchSource = nil;
