@@ -50,34 +50,34 @@ make build
 ### Quick samples
 ```
 # list 5 chats
-imsg chats --limit 5
+imsg-plus chats --limit 5
 
 # list chats as JSON
-imsg chats --limit 5 --json
+imsg-plus chats --limit 5 --json
 
 # last 10 messages in chat 1 with attachments
-imsg history --chat-id 1 --limit 10 --attachments
+imsg-plus history --chat-id 1 --limit 10 --attachments
 
 # filter by date and emit JSON
-imsg history --chat-id 1 --start 2025-01-01T00:00:00Z --json
+imsg-plus history --chat-id 1 --start 2025-01-01T00:00:00Z --json
 
 # live stream a chat
-imsg watch --chat-id 1 --attachments --debounce 250ms
+imsg-plus watch --chat-id 1 --attachments --debounce 250ms
 
 # send a picture
-imsg send --to "+14155551212" --text "hi" --file ~/Desktop/pic.jpg --service imessage
+imsg-plus send --to "+14155551212" --text "hi" --file ~/Desktop/pic.jpg --service imessage
 
 # NEW: show typing indicator
-imsg typing --handle "+14155551212" --state on
+imsg-plus typing --handle "+14155551212" --state on
 
 # NEW: mark messages as read
-imsg read --handle "+14155551212"
+imsg-plus read --handle "+14155551212"
 
 # NEW: send a tapback reaction
-imsg react --handle "+14155551212" --guid "ABC-123" --type love
+imsg-plus react --handle "+14155551212" --guid "ABC-123" --type love
 
 # NEW: check feature availability
-imsg status
+imsg-plus status
 ```
 
 ## Attachment notes
@@ -126,12 +126,12 @@ DYLD_INSERT_LIBRARIES=$PWD/.build/release/imsg-plus-helper.dylib \
   /System/Applications/Messages.app/Contents/MacOS/Messages &
 
 # 3. Verify it's working
-imsg status
+imsg-plus status
 # Should show: "✅ Available - IMCore framework loaded"
 
 # 4. Use advanced features
-imsg typing --handle "user@example.com" --state on
-imsg read --handle "user@example.com"
+imsg-plus typing --handle "user@example.com" --state on
+imsg-plus read --handle "user@example.com"
 ```
 
 ### Troubleshooting

@@ -2,7 +2,7 @@ import Commander
 import Foundation
 import Testing
 
-@testable import imsg
+@testable import imsg-plus
 
 @Test
 func helpPrinterPrintsCommandDetails() throws {

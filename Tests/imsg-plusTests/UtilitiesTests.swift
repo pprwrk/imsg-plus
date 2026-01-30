@@ -3,7 +3,7 @@ import Foundation
 import Testing
 
 @testable import IMsgCore
-@testable import imsg
+@testable import imsg-plus
 
 @Test
 func durationParserHandlesUnits() {

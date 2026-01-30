@@ -2,11 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "imsg",
+    name: "imsg-plus",
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "IMsgCore", targets: ["IMsgCore"]),
-        .executable(name: "imsg", targets: ["imsg"]),
+        .executable(name: "imsg-plus", targets: ["imsg-plus"]),
     ],
     dependencies: [
         .package(url: "https://github.com/steipete/Commander.git", from: "0.2.0"),
@@ -25,7 +25,7 @@ let package = Package(
             ]
         ),
     .executableTarget(
-        name: "imsg",
+        name: "imsg-plus",
         dependencies: [
             "IMsgCore",
             .product(name: "Commander", package: "Commander"),
@@ -38,7 +38,7 @@ let package = Package(
                 "-Xlinker", "-sectcreate",
                 "-Xlinker", "__TEXT",
                 "-Xlinker", "__info_plist",
-                "-Xlinker", "Sources/imsg/Resources/Info.plist",
+                "-Xlinker", "Sources/imsg-plus/Resources/Info.plist",
             ])
         ]
     ),
@@ -49,9 +49,9 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "imsgTests",
+            name: "imsg-plusTests",
             dependencies: [
-                "imsg",
+                "imsg-plus",
                 "IMsgCore",
             ]
         ),

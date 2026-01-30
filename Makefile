@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: help format lint test build imsg clean build-dylib build-helper
+.PHONY: help format lint test build imsg-plus clean build-dylib build-helper
 
 help:
 	@printf "%s\n" \
@@ -9,7 +9,7 @@ help:
 		"make test       - sync version, patch deps, run swift test" \
 		"make build      - universal release build into bin/" \
 		"make build-dylib - build injectable dylib for Messages.app" \
-		"make imsg       - clean rebuild + run debug binary (ARGS=...)" \
+		"make imsg-plus  - clean rebuild + run debug binary (ARGS=...)" \
 		"make clean      - swift package clean"
 
 format:
@@ -52,13 +52,13 @@ build-helper:
 	@clang -fobjc-arc -framework Foundation -o .build/release/imsg-helper Sources/IMsgHelper/main.m
 	@echo "Built imsg-helper successfully"
 
-imsg: build-dylib
+imsg-plus: build-dylib
 	scripts/generate-version.sh
 	swift package resolve
 	scripts/patch-deps.sh
 	swift package clean
-	swift build -c debug --product imsg
-	./.build/debug/imsg $(ARGS)
+	swift build -c debug --product imsg-plus
+	./.build/debug/imsg-plus $(ARGS)
 
 clean:
 	swift package clean
