@@ -298,23 +298,22 @@ static NSDictionary* handleReact(NSInteger requestId, NSDictionary *params) {
     }
 
     @try {
-        // Search through chatItems to find the message item (needed for tapback methods)
+        // Search through chatItems to find the chat item (IMChatItem subclass)
+        // Don't use messageForGUID - it returns IMMessage which doesn't work with tapback methods
         id chatItem = nil;
-
         SEL chatItemsSel = @selector(chatItems);
         if ([chat respondsToSelector:chatItemsSel]) {
             NSArray *chatItems = [chat performSelector:chatItemsSel];
             NSLog(@"[imsg-plus] Searching %lu chat items for GUID: %@", (unsigned long)chatItems.count, messageGUID);
 
             for (id item in chatItems) {
-
                 // Check if this item has a matching GUID (may be prefixed like "p:0/GUID")
                 if ([item respondsToSelector:@selector(guid)]) {
                     NSString *itemGUID = [item performSelector:@selector(guid)];
                     // Match exact GUID or GUID with prefix (e.g., "p:0/GUID")
                     if ([itemGUID isEqualToString:messageGUID] || [itemGUID hasSuffix:messageGUID]) {
                         chatItem = item;
-                        NSLog(@"[imsg-plus] Found message item: %@ (class: %@)", itemGUID, [item class]);
+                        NSLog(@"[imsg-plus] Found chat item: %@ (class: %@)", itemGUID, [item class]);
                         break;
                     }
                 }
@@ -326,7 +325,7 @@ static NSDictionary* handleReact(NSInteger requestId, NSDictionary *params) {
                         NSString *innerGUID = [innerItem performSelector:@selector(guid)];
                         if ([innerGUID isEqualToString:messageGUID] || [innerGUID hasSuffix:messageGUID]) {
                             chatItem = item;
-                            NSLog(@"[imsg-plus] Found message item via _item: %@ (class: %@)", innerGUID, [item class]);
+                            NSLog(@"[imsg-plus] Found chat item via _item: %@ (class: %@)", innerGUID, [item class]);
                             break;
                         }
                     }
@@ -338,62 +337,151 @@ static NSDictionary* handleReact(NSInteger requestId, NSDictionary *params) {
             return errorResponse(requestId, [NSString stringWithFormat:@"Chat item not found for GUID: %@", messageGUID]);
         }
 
-        // If we found a part chat item, try to get the parent message item
+        // Get the parent item (IMMessageItem) from the chat item if it's a part item
+        // Methods work better with IMMessageItem than IMTextMessagePartChatItem
+        id targetItem = chatItem;
         if ([[chatItem class] isSubclassOfClass:NSClassFromString(@"IMTextMessagePartChatItem")]) {
             if ([chatItem respondsToSelector:@selector(_parentItem)]) {
                 id parent = [chatItem performSelector:@selector(_parentItem)];
                 if (parent) {
                     NSLog(@"[imsg-plus] Using parent item: %@ (class: %@)", [parent class], [parent class]);
-                    chatItem = parent;
+                    targetItem = parent;
+                } else {
+                    NSLog(@"[imsg-plus] No parent item, using part item: %@ (class: %@)", [chatItem class], [chatItem class]);
                 }
+            }
+        } else {
+            NSLog(@"[imsg-plus] Using chat item directly: %@ (class: %@)", [chatItem class], [chatItem class]);
+        }
+
+        NSInteger typeValue = [type integerValue];
+
+        // Define all possible selectors (in order of preference)
+        SEL modernSel = @selector(sendMessageAcknowledgment:forChatItem:withAssociatedMessageInfo:);
+        SEL legacySel = @selector(sendMessageAcknowledgment:forChatItem:withMessageSummaryInfo:);
+        SEL twoParamSel = @selector(sendMessageAcknowledgment:forChatItem:);
+        SEL tapbackSel = @selector(sendTapback:forChatItem:);
+
+        // Log which methods are available
+        NSLog(@"[imsg-plus] Chat class: %@", [chat class]);
+        NSLog(@"[imsg-plus] Has modernSel: %@", [chat respondsToSelector:modernSel] ? @"YES" : @"NO");
+        NSLog(@"[imsg-plus] Has legacySel: %@", [chat respondsToSelector:legacySel] ? @"YES" : @"NO");
+        NSLog(@"[imsg-plus] Has twoParamSel: %@", [chat respondsToSelector:twoParamSel] ? @"YES" : @"NO");
+        NSLog(@"[imsg-plus] Has tapbackSel: %@", [chat respondsToSelector:tapbackSel] ? @"YES" : @"NO");
+
+        // Dump the method signature
+        if ([chat respondsToSelector:twoParamSel]) {
+            NSMethodSignature *sig = [chat methodSignatureForSelector:twoParamSel];
+            NSLog(@"[imsg-plus] 2-param signature: return=%s, args=%lu", sig.methodReturnType, (unsigned long)sig.numberOfArguments);
+            for (NSUInteger i = 0; i < sig.numberOfArguments; i++) {
+                NSLog(@"[imsg-plus]   arg[%lu]: %s", (unsigned long)i, [sig getArgumentTypeAtIndex:i]);
             }
         }
 
-        // Try sendMessageAcknowledgment:forChatItem: first
-        SEL ackSel = @selector(sendMessageAcknowledgment:forChatItem:);
-        if ([chat respondsToSelector:ackSel]) {
-            NSLog(@"[imsg-plus] Calling sendMessageAcknowledgment:%ld forChatItem:", (long)[type integerValue]);
-            NSMethodSignature *sig = [chat methodSignatureForSelector:ackSel];
-            NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-            [inv setSelector:ackSel];
-            [inv setTarget:chat];
-            NSInteger typeValue = [type integerValue];
-            [inv setArgument:&typeValue atIndex:2];
-            [inv setArgument:&chatItem atIndex:3];
-            [inv invoke];
-
-            NSLog(@"[imsg-plus] Sent acknowledgment %ld for message %@", (long)typeValue, messageGUID);
-            return successResponse(requestId, @{
-                @"handle": handle,
-                @"guid": messageGUID,
-                @"type": type,
-                @"action": [type integerValue] >= 3000 ? @"removed" : @"added"
-            });
+        // Try modern 3-param method (macOS 10.15+) using objc_msgSend
+        if ([chat respondsToSelector:modernSel]) {
+            @try {
+                NSLog(@"[imsg-plus] Trying modern 3-param with chat item using objc_msgSend");
+                void (*msgSend)(id, SEL, NSInteger, id, id) = (void *)objc_msgSend;
+                msgSend(chat, modernSel, typeValue, targetItem, nil);
+                NSLog(@"[imsg-plus] ✅ Success via modern 3-param method");
+                return successResponse(requestId, @{
+                    @"handle": handle,
+                    @"guid": messageGUID,
+                    @"type": type,
+                    @"action": [type integerValue] >= 3000 ? @"removed" : @"added",
+                    @"method": @"withAssociatedMessageInfo"
+                });
+            } @catch (NSException *ex) {
+                NSLog(@"[imsg-plus] Failed modern 3-param: %@", ex.reason);
+            }
         }
 
-        // Fallback to sendTapback:forChatItem:
-        SEL tapbackSel = @selector(sendTapback:forChatItem:);
+        // Try legacy 3-param method (macOS 10.14 and earlier) using objc_msgSend
+        if ([chat respondsToSelector:legacySel]) {
+            @try {
+                NSLog(@"[imsg-plus] Trying legacy 3-param with chat item using objc_msgSend");
+                void (*msgSend)(id, SEL, NSInteger, id, id) = (void *)objc_msgSend;
+                msgSend(chat, legacySel, typeValue, targetItem, nil);
+                NSLog(@"[imsg-plus] ✅ Success via legacy 3-param method");
+                return successResponse(requestId, @{
+                    @"handle": handle,
+                    @"guid": messageGUID,
+                    @"type": type,
+                    @"action": [type integerValue] >= 3000 ? @"removed" : @"added",
+                    @"method": @"withMessageSummaryInfo"
+                });
+            } @catch (NSException *ex) {
+                NSLog(@"[imsg-plus] Failed legacy 3-param: %@", ex.reason);
+            }
+        }
+
+        // Try 2-param method using objc_msgSend directly
+        if ([chat respondsToSelector:twoParamSel]) {
+            @try {
+                NSLog(@"[imsg-plus] Trying 2-param with chat item using objc_msgSend");
+                void (*msgSend)(id, SEL, NSInteger, id) = (void *)objc_msgSend;
+                msgSend(chat, twoParamSel, typeValue, targetItem);
+                NSLog(@"[imsg-plus] ✅ Success via 2-param method");
+                return successResponse(requestId, @{
+                    @"handle": handle,
+                    @"guid": messageGUID,
+                    @"type": type,
+                    @"action": [type integerValue] >= 3000 ? @"removed" : @"added",
+                    @"method": @"2-param"
+                });
+            } @catch (NSException *ex) {
+                NSLog(@"[imsg-plus] Failed 2-param: %@", ex.reason);
+            }
+        }
+
+        // Try alternative sendTapback:forChatItem: method using objc_msgSend
         if ([chat respondsToSelector:tapbackSel]) {
-            NSLog(@"[imsg-plus] Calling sendTapback:%ld forChatItem:", (long)[type integerValue]);
-            NSMethodSignature *sig = [chat methodSignatureForSelector:tapbackSel];
-            NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-            [inv setSelector:tapbackSel];
-            [inv setTarget:chat];
-            NSInteger typeValue = [type integerValue];
-            [inv setArgument:&typeValue atIndex:2];
-            [inv setArgument:&chatItem atIndex:3];
-            [inv invoke];
-
-            NSLog(@"[imsg-plus] Sent tapback %ld for message %@", (long)typeValue, messageGUID);
-            return successResponse(requestId, @{
-                @"handle": handle,
-                @"guid": messageGUID,
-                @"type": type,
-                @"action": [type integerValue] >= 3000 ? @"removed" : @"added"
-            });
+            @try {
+                NSLog(@"[imsg-plus] Trying sendTapback with chat item using objc_msgSend");
+                void (*msgSend)(id, SEL, NSInteger, id) = (void *)objc_msgSend;
+                msgSend(chat, tapbackSel, typeValue, targetItem);
+                NSLog(@"[imsg-plus] ✅ Success via sendTapback method");
+                return successResponse(requestId, @{
+                    @"handle": handle,
+                    @"guid": messageGUID,
+                    @"type": type,
+                    @"action": [type integerValue] >= 3000 ? @"removed" : @"added",
+                    @"method": @"sendTapback"
+                });
+            } @catch (NSException *ex) {
+                NSLog(@"[imsg-plus] Failed sendTapback: %@", ex.reason);
+            }
         }
 
-        return errorResponse(requestId, @"No tapback method available");
+        // Log available methods for debugging
+        NSLog(@"[imsg-plus] ❌ No tapback method available or all methods failed. Chat class: %@", [chat class]);
+        unsigned int methodCount;
+        Method *methods = class_copyMethodList([chat class], &methodCount);
+        NSLog(@"[imsg-plus] All methods containing 'ack', 'tapback', or 'message':");
+        for (unsigned int i = 0; i < methodCount; i++) {
+            SEL selector = method_getName(methods[i]);
+            NSString *methodName = NSStringFromSelector(selector);
+            NSString *lowerName = [methodName lowercaseString];
+            if ([lowerName containsString:@"ack"] || [lowerName containsString:@"tapback"] || [lowerName containsString:@"message"]) {
+                // Get method signature
+                Method method = methods[i];
+                char *returnType = method_copyReturnType(method);
+                unsigned int argCount = method_getNumberOfArguments(method);
+                NSMutableString *sig = [NSMutableString stringWithFormat:@"%s %@(", returnType, methodName];
+                for (unsigned int j = 2; j < argCount; j++) {  // Skip self and _cmd
+                    char *argType = method_copyArgumentType(method, j);
+                    [sig appendFormat:@"%s%s", argType, (j < argCount - 1) ? ", " : ""];
+                    free(argType);
+                }
+                [sig appendString:@")"];
+                free(returnType);
+                NSLog(@"[imsg-plus]   - %@", sig);
+            }
+        }
+        free(methods);
+
+        return errorResponse(requestId, @"All tapback methods failed or none available");
     } @catch (NSException *exception) {
         return errorResponse(requestId, [NSString stringWithFormat:@"Failed to send tapback: %@", exception.reason]);
     }
@@ -592,6 +680,20 @@ static void injectedInit(void) {
 
     // Inject compatibility methods for IMCore
     injectCompatibilityMethods();
+
+    // Connect to IMDaemon for full IMCore access
+    Class daemonClass = NSClassFromString(@"IMDaemonController");
+    if (daemonClass) {
+        id daemon = [daemonClass performSelector:@selector(sharedInstance)];
+        if (daemon && [daemon respondsToSelector:@selector(connectToDaemon)]) {
+            [daemon performSelector:@selector(connectToDaemon)];
+            NSLog(@"[imsg-plus] ✅ Connected to IMDaemon");
+        } else {
+            NSLog(@"[imsg-plus] ⚠️ IMDaemonController available but couldn't connect");
+        }
+    } else {
+        NSLog(@"[imsg-plus] ⚠️ IMDaemonController class not found");
+    }
 
     // Delay initialization to let Messages.app fully start
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
