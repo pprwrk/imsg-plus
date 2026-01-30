@@ -1,5 +1,13 @@
 import Foundation
 
+/// Tapback reaction types for iMessage
+///
+/// These values correspond to Apple's IMCore framework's `associatedMessageType` field.
+/// - 2000-2005: Add tapback reactions (love, thumbsup, thumbsdown, haha, emphasis, question)
+/// - 3000-3005: Remove tapback reactions (add 1000 to the base type)
+///
+/// Source: BlueBubbles IMCore documentation
+/// https://docs.bluebubbles.app/private-api/imcore-documentation
 public enum TapbackType: Int, Sendable {
   case love = 2000
   case thumbsUp = 2001

@@ -162,6 +162,10 @@ static id findChat(NSString *identifier) {
     SEL allChatsSel = @selector(allExistingChats);
     if ([registry respondsToSelector:allChatsSel]) {
         NSArray *allChats = [registry performSelector:allChatsSel];
+        if (!allChats) {
+            NSLog(@"[imsg-plus] allExistingChats returned nil");
+            return nil;
+        }
         NSLog(@"[imsg-plus] Searching %lu chats for identifier: %@", (unsigned long)allChats.count, identifier);
 
         // Normalize the search identifier (strip non-digit chars for phone numbers)
@@ -200,6 +204,9 @@ static id findChat(NSString *identifier) {
             // Check participants — exact or normalized phone match
             if ([aChat respondsToSelector:@selector(participants)]) {
                 NSArray *participants = [aChat performSelector:@selector(participants)];
+                if (!participants) {
+                    continue;
+                }
                 for (id handle in participants) {
                     if ([handle respondsToSelector:@selector(ID)]) {
                         NSString *handleID = [handle performSelector:@selector(ID)];
@@ -264,6 +271,9 @@ static NSDictionary* handleTyping(NSInteger requestId, NSDictionary *params) {
         SEL typingSel = @selector(setLocalUserIsTyping:);
         if ([chat respondsToSelector:typingSel]) {
             NSMethodSignature *sig = [chat methodSignatureForSelector:typingSel];
+            if (!sig) {
+                return errorResponse(requestId, @"Could not get method signature for setLocalUserIsTyping:");
+            }
             NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
             [inv setSelector:typingSel];
             [inv setTarget:chat];
@@ -378,6 +388,9 @@ static NSDictionary* handleReact(NSInteger requestId, NSDictionary *params) {
 
     // Build and invoke the async load call
     NSMethodSignature *loadSig = [historyController methodSignatureForSelector:loadSel];
+    if (!loadSig) {
+        return errorResponse(requestId, @"Could not get method signature for loadMessageWithGUID:completionBlock:");
+    }
     NSInvocation *loadInv = [NSInvocation invocationWithMethodSignature:loadSig];
     [loadInv setSelector:loadSel];
     [loadInv setTarget:historyController];
