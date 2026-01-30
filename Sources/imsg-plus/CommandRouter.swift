@@ -2,7 +2,7 @@ import Commander
 import Foundation
 
 struct CommandRouter {
-  let rootName = "imsg"
+  let rootName = "imsg-plus"
   let version: String
   let specs: [CommandSpec]
   let program: Program

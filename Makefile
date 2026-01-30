@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: help format lint test build imsg-plus clean build-dylib build-helper
+.PHONY: help format lint test build imsg-plus clean build-dylib build-helper install uninstall
 
 help:
 	@printf "%s\n" \
@@ -10,6 +10,8 @@ help:
 		"make build      - universal release build into bin/" \
 		"make build-dylib - build injectable dylib for Messages.app" \
 		"make imsg-plus  - clean rebuild + run debug binary (ARGS=...)" \
+		"make install    - build release binary and install to /usr/local/bin" \
+		"make uninstall  - remove installed binary from /usr/local/bin" \
 		"make clean      - swift package clean"
 
 format:
@@ -64,3 +66,24 @@ clean:
 	swift package clean
 	@rm -f .build/release/imsg-plus-helper.dylib
 	@rm -f .build/release/imsg-helper
+
+install: build-dylib
+	@echo "Building release binary..."
+	scripts/generate-version.sh
+	swift package resolve
+	scripts/patch-deps.sh
+	swift build -c release --product imsg-plus
+	@echo "Installing imsg-plus to /usr/local/bin..."
+	@mkdir -p /usr/local/bin
+	@cp .build/release/imsg-plus /usr/local/bin/imsg-plus
+	@echo "✅ Installed! You can now run 'imsg-plus' from anywhere"
+	@echo ""
+	@echo "To enable advanced features (typing, read receipts, tapbacks):"
+	@echo "  1. Disable SIP (System Integrity Protection)"
+	@echo "  2. Run: make build-dylib"
+	@echo "  3. Launch Messages with: DYLD_INSERT_LIBRARIES=\$$(pwd)/.build/release/imsg-plus-helper.dylib /System/Applications/Messages.app/Contents/MacOS/Messages &"
+
+uninstall:
+	@echo "Removing imsg-plus from /usr/local/bin..."
+	@rm -f /usr/local/bin/imsg-plus
+	@echo "✅ Uninstalled"
