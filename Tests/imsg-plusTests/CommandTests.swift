@@ -4,7 +4,7 @@ import SQLite
 import Testing
 
 @testable import IMsgCore
-@testable import imsg
+@testable import imsg-plus
 
 private enum CommandTestDatabase {
   static func appleEpoch(_ date: Date) -> Int64 {

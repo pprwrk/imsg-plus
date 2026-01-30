@@ -3,17 +3,17 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleIdentifier</key>
-  <string>com.steipete.imsg</string>
+  <string>com.micahbrich.imsg-plus</string>
   <key>CFBundleName</key>
-  <string>imsg</string>
+  <string>imsg-plus</string>
   <key>CFBundleExecutable</key>
-  <string>imsg</string>
+  <string>imsg-plus</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.4.1</string>
+  <string>0.5.0</string>
   <key>CFBundleVersion</key>
-  <string>0.4.1</string>
+  <string>0.5.0</string>
   <key>NSAppleEventsUsageDescription</key>
   <string>Send messages via Messages.app.</string>
 </dict>

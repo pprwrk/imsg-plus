@@ -3,7 +3,7 @@ import SQLite
 import Testing
 
 @testable import IMsgCore
-@testable import imsg
+@testable import imsg-plus
 
 private enum RPCTestDatabase {
   static func appleEpoch(_ date: Date) -> Int64 {

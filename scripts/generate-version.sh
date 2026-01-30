@@ -2,8 +2,8 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 source "$ROOT/version.env"
-OUTPUT="$ROOT/Sources/imsg/Version.swift"
-PLIST_OUTPUT="$ROOT/Sources/imsg/Resources/Info.plist"
+OUTPUT="$ROOT/Sources/imsg-plus/Version.swift"
+PLIST_OUTPUT="$ROOT/Sources/imsg-plus/Resources/Info.plist"
 mkdir -p "$(dirname "$OUTPUT")"
 mkdir -p "$(dirname "$PLIST_OUTPUT")"
 cat > "$OUTPUT" <<SWIFT
@@ -19,11 +19,11 @@ cat > "$PLIST_OUTPUT" <<PLIST
 <plist version="1.0">
 <dict>
   <key>CFBundleIdentifier</key>
-  <string>com.steipete.imsg</string>
+  <string>com.micahbrich.imsg-plus</string>
   <key>CFBundleName</key>
-  <string>imsg</string>
+  <string>imsg-plus</string>
   <key>CFBundleExecutable</key>
-  <string>imsg</string>
+  <string>imsg-plus</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

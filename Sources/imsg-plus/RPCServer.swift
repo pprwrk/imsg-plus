@@ -14,12 +14,17 @@ final class RPCServer {
   private let cache: ChatCache
   private let verbose: Bool
   private let sendMessage: (MessageSendOptions) throws -> Void
+  private let autoRead: Bool
+  private let autoTyping: Bool
+  private let bridgeAvailable: Bool
   private var nextSubscriptionID = 1
   private var subscriptions: [Int: Task<Void, Never>] = [:]
 
   init(
     store: MessageStore,
     verbose: Bool,
+    autoRead: Bool? = nil,
+    autoTyping: Bool? = nil,
     output: RPCOutput = RPCWriter(),
     sendMessage: @escaping (MessageSendOptions) throws -> Void = { try MessageSender().send($0) }
   ) {
@@ -29,6 +34,10 @@ final class RPCServer {
     self.verbose = verbose
     self.output = output
     self.sendMessage = sendMessage
+    let available = IMCoreBridge.shared.isAvailable
+    self.bridgeAvailable = available
+    self.autoRead = autoRead ?? available
+    self.autoTyping = autoTyping ?? available
   }
 
   func run() async throws {
@@ -145,6 +154,9 @@ final class RPCServer {
         let localSinceRowID = sinceRowID
         let localConfig = config
         let localIncludeAttachments = includeAttachments
+        let localAutoRead = autoRead
+        let localBridgeAvailable = bridgeAvailable
+        let localVerbose = verbose
         let task = Task {
           do {
             for try await message in localWatcher.stream(
@@ -164,6 +176,29 @@ final class RPCServer {
                 method: "message",
                 params: ["subscription": subID, "message": payload]
               )
+              // Auto-read receipt for incoming messages
+              if localAutoRead && localBridgeAvailable {
+                if let isFromMe = payload["is_from_me"] as? Bool, !isFromMe {
+                  let handle: String? =
+                    stringParam(payload["chat_identifier"])
+                    ?? stringParam(payload["sender"])
+                  if let handle, !handle.isEmpty {
+                    Task {
+                      do {
+                        try await Task.sleep(nanoseconds: 1_000_000_000)
+                        try await IMCoreBridge.shared.markAsRead(handle: handle)
+                        if localVerbose {
+                          FileHandle.standardError.write(Data("[auto-read] marked read for \(handle)\n".utf8))
+                        }
+                      } catch {
+                        if localVerbose {
+                          FileHandle.standardError.write(Data("[auto-read] error: \(error)\n".utf8))
+                        }
+                      }
+                    }
+                  }
+                }
+              }
             }
           } catch {
             localWriter.sendNotification(
@@ -186,7 +221,13 @@ final class RPCServer {
         }
         respond(id: id, result: ["ok": true])
       case "send":
-        try handleSend(params: params, id: id)
+        try await handleSend(params: params, id: id)
+      case "typing.set":
+        try await handleTypingSet(params: params, id: id)
+      case "messages.markRead":
+        try await handleMarkRead(params: params, id: id)
+      case "tapback.send":
+        try await handleTapbackSend(params: params, id: id)
       default:
         output.sendError(id: id, error: RPCError.methodNotFound(method))
       }
@@ -212,7 +253,7 @@ final class RPCServer {
     output.sendResponse(id: id, result: result)
   }
 
-  private func handleSend(params: [String: Any], id: Any?) throws {
+  private func handleSend(params: [String: Any], id: Any?) async throws {
     let text = stringParam(params["text"]) ?? ""
     let file = stringParam(params["file"]) ?? ""
     let serviceRaw = stringParam(params["service"]) ?? "auto"
@@ -250,6 +291,33 @@ final class RPCServer {
       throw RPCError.invalidParams("missing chat identifier or guid")
     }
 
+    // Auto-typing: simulate typing before sending
+    if autoTyping && bridgeAvailable {
+      let typingHandle = resolveTypingHandle(
+        recipient: recipient,
+        chatIdentifier: resolvedChatIdentifier,
+        chatGUID: resolvedChatGUID
+      )
+      if let handle = typingHandle {
+        do {
+          try await IMCoreBridge.shared.setTyping(for: handle, typing: true)
+          if verbose {
+            FileHandle.standardError.write(Data("[auto-typing] ON for \(handle)\n".utf8))
+          }
+          // Delay based on message length: ~1.5s base + up to 2.5s for longer messages, cap at 4s
+          let charCount = Double(text.count)
+          let baseDelay = 1.5
+          let extraDelay = min(charCount / 80.0 * 2.5, 2.5)
+          let totalDelay = min(baseDelay + extraDelay, 4.0)
+          try await Task.sleep(nanoseconds: UInt64(totalDelay * 1_000_000_000))
+        } catch {
+          if verbose {
+            FileHandle.standardError.write(Data("[auto-typing] error: \(error)\n".utf8))
+          }
+        }
+      }
+    }
+
     try sendMessage(
       MessageSendOptions(
         recipient: recipient,
@@ -261,7 +329,92 @@ final class RPCServer {
         chatGUID: resolvedChatGUID
       )
     )
+
+    // Turn off typing after send (fire-and-forget)
+    if autoTyping && bridgeAvailable {
+      let typingHandle = resolveTypingHandle(
+        recipient: recipient,
+        chatIdentifier: resolvedChatIdentifier,
+        chatGUID: resolvedChatGUID
+      )
+      if let handle = typingHandle {
+        let localVerbose = verbose
+        Task {
+          do {
+            try await IMCoreBridge.shared.setTyping(for: handle, typing: false)
+            if localVerbose {
+              FileHandle.standardError.write(Data("[auto-typing] OFF for \(handle)\n".utf8))
+            }
+          } catch {
+            if localVerbose {
+              FileHandle.standardError.write(Data("[auto-typing] off error: \(error)\n".utf8))
+            }
+          }
+        }
+      }
+    }
+
     respond(id: id, result: ["ok": true])
+  }
+
+  private func handleTypingSet(params: [String: Any], id: Any?) async throws {
+    guard let handle = stringParam(params["handle"]), !handle.isEmpty else {
+      throw RPCError.invalidParams("handle is required")
+    }
+    guard let state = stringParam(params["state"]), state == "on" || state == "off" else {
+      throw RPCError.invalidParams("state must be 'on' or 'off'")
+    }
+    guard bridgeAvailable else {
+      throw RPCError.internalError("IMCoreBridge not available")
+    }
+    try await IMCoreBridge.shared.setTyping(for: handle, typing: state == "on")
+    respond(id: id, result: ["ok": true])
+  }
+
+  private func handleMarkRead(params: [String: Any], id: Any?) async throws {
+    guard let handle = stringParam(params["handle"]), !handle.isEmpty else {
+      throw RPCError.invalidParams("handle is required")
+    }
+    guard bridgeAvailable else {
+      throw RPCError.internalError("IMCoreBridge not available")
+    }
+    try await IMCoreBridge.shared.markAsRead(handle: handle)
+    respond(id: id, result: ["ok": true])
+  }
+
+  private func handleTapbackSend(params: [String: Any], id: Any?) async throws {
+    guard let handle = stringParam(params["handle"]), !handle.isEmpty else {
+      throw RPCError.invalidParams("handle is required")
+    }
+    guard let guid = stringParam(params["guid"]), !guid.isEmpty else {
+      throw RPCError.invalidParams("guid is required (message GUID to react to)")
+    }
+    guard let typeStr = stringParam(params["type"]), !typeStr.isEmpty else {
+      throw RPCError.invalidParams("type is required (love, thumbsup, thumbsdown, haha, emphasis, question)")
+    }
+    let remove = boolParam(params["remove"]) ?? false
+    guard let tapbackType = TapbackType.from(string: typeStr, remove: remove) else {
+      throw RPCError.invalidParams("invalid reaction type: '\(typeStr)'. Valid: love, thumbsup, thumbsdown, haha, emphasis, question")
+    }
+    guard bridgeAvailable else {
+      throw RPCError.internalError("IMCoreBridge not available")
+    }
+    try await IMCoreBridge.shared.sendTapback(to: handle, messageGUID: guid, type: tapbackType)
+    respond(id: id, result: [
+      "ok": true,
+      "handle": handle,
+      "guid": guid,
+      "type": tapbackType.displayName,
+      "action": remove ? "removed" : "added",
+    ])
+  }
+
+  /// Resolve the best handle for typing/read from send params
+  private func resolveTypingHandle(recipient: String, chatIdentifier: String, chatGUID: String) -> String? {
+    if !recipient.isEmpty { return recipient }
+    if !chatIdentifier.isEmpty { return chatIdentifier }
+    if !chatGUID.isEmpty { return chatGUID }
+    return nil
   }
 
 }
