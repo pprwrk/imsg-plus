@@ -119,7 +119,7 @@ public struct MessageSender {
     let script = appleScript()
     let arguments = [
       resolved.recipient,
-      resolved.text,
+      resolved.text.trimmingCharacters(in: .whitespacesAndNewlines),
       resolved.service.rawValue,
       resolved.attachmentPath,
       resolved.attachmentPath.isEmpty ? "0" : "1",
