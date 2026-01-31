@@ -202,34 +202,12 @@ public struct MessageSender {
   }
 
   private static func runAppleScript(source: String, arguments: [String]) throws {
-    guard let script = NSAppleScript(source: source) else {
-      throw IMsgError.appleScriptFailure("Unable to compile AppleScript")
-    }
-    var errorInfo: NSDictionary?
-    let event = NSAppleEventDescriptor(
-      eventClass: AEEventClass(kASAppleScriptSuite),
-      eventID: AEEventID(kASSubroutineEvent),
-      targetDescriptor: nil,
-      returnID: AEReturnID(kAutoGenerateReturnID),
-      transactionID: AETransactionID(kAnyTransactionID)
-    )
-    event.setParam(
-      NSAppleEventDescriptor(string: "run"), forKeyword: AEKeyword(keyASSubroutineName))
-    let list = NSAppleEventDescriptor.list()
-    for (index, value) in arguments.enumerated() {
-      list.insert(NSAppleEventDescriptor(string: value), at: index + 1)
-    }
-    event.setParam(list, forKeyword: keyDirectObject)
-    script.executeAppleEvent(event, error: &errorInfo)
-    if let errorInfo {
-      if shouldFallbackToOsascript(errorInfo: errorInfo) {
-        try runOsascript(source: source, arguments: arguments)
-        return
-      }
-      let message =
-        (errorInfo[NSAppleScript.errorMessage] as? String) ?? "Unknown AppleScript error"
-      throw IMsgError.appleScriptFailure(message)
-    }
+    // Use osascript directly to avoid TCC permission issues with NSAppleScript.
+    // NSAppleScript runs in-process, requiring "node → imsg-plus" Automation permission
+    // which resets whenever Messages.app or the system restarts.
+    // osascript is an Apple-signed system binary, so the TCC chain becomes
+    // "node → Messages.app" which is more stable.
+    try runOsascript(source: source, arguments: arguments)
   }
 
   private static func shouldFallbackToOsascript(errorInfo: NSDictionary) -> Bool {
