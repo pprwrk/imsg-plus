@@ -26,7 +26,7 @@ struct MessageEvent: WatchEvent {
   let text: String
   let attachments: [AttachmentPayload]
   let reactions: [ReactionPayload]
-  
+
   init(message: Message, attachments: [AttachmentMeta], reactions: [Reaction]) {
     self.timestamp = CLIISO8601.format(Date())
     self.id = message.rowID
@@ -39,7 +39,7 @@ struct MessageEvent: WatchEvent {
     self.attachments = attachments.map { AttachmentPayload(meta: $0) }
     self.reactions = reactions.map { ReactionPayload(reaction: $0) }
   }
-  
+
   enum CodingKeys: String, CodingKey {
     case type
     case timestamp
@@ -61,14 +61,14 @@ struct TypingEvent: WatchEvent {
   let sender: String
   let chatID: String
   let started: Bool
-  
+
   init(sender: String, chatID: String, started: Bool) {
     self.timestamp = CLIISO8601.format(Date())
     self.sender = sender
     self.chatID = chatID
     self.started = started
   }
-  
+
   enum CodingKeys: String, CodingKey {
     case type
     case timestamp
@@ -84,14 +84,14 @@ struct ReadEvent: WatchEvent {
   let by: String
   let messageGUID: String
   let chatID: String
-  
+
   init(by: String, messageGUID: String, chatID: String) {
     self.timestamp = CLIISO8601.format(Date())
     self.by = by
     self.messageGUID = messageGUID
     self.chatID = chatID
   }
-  
+
   enum CodingKeys: String, CodingKey {
     case type
     case timestamp
@@ -106,13 +106,13 @@ struct DeliveredEvent: WatchEvent {
   let timestamp: String
   let messageGUID: String
   let to: String
-  
+
   init(messageGUID: String, to: String) {
     self.timestamp = CLIISO8601.format(Date())
     self.messageGUID = messageGUID
     self.to = to
   }
-  
+
   enum CodingKeys: String, CodingKey {
     case type
     case timestamp
@@ -129,7 +129,7 @@ struct ReactionEvent: WatchEvent {
   let reaction: String
   let emoji: String
   let added: Bool
-  
+
   init(sender: String, messageGUID: String, reaction: String, emoji: String, added: Bool) {
     self.timestamp = CLIISO8601.format(Date())
     self.sender = sender
@@ -138,7 +138,7 @@ struct ReactionEvent: WatchEvent {
     self.emoji = emoji
     self.added = added
   }
-  
+
   enum CodingKeys: String, CodingKey {
     case type
     case timestamp
