@@ -6,7 +6,7 @@ enum WatchdogCommand {
   static let launchAgentLabel = "com.imsg-plus.watchdog"
   static let launchAgentPath = NSHomeDirectory() + "/Library/LaunchAgents/\(launchAgentLabel).plist"
   static let logPath = NSHomeDirectory() + "/Library/Logs/imsg-plus-watchdog.log"
-  
+
   // Error patterns that indicate Messages.app sync issues
   static let errorPatterns = [
     "Sandbox restriction",
@@ -15,20 +15,20 @@ enum WatchdogCommand {
     "PSC out of sync",
     "IMDMessageServicesAgent.*invalid"
   ]
-  
+
   static let spec = CommandSpec(
     name: "watchdog",
     abstract: "Monitor and auto-heal Messages.app sync issues",
     discussion: """
       Monitors macOS imagent logs for sync failures and automatically
       restarts Messages.app with dylib injection when issues are detected.
-      
+
       Running `imsg-plus watchdog` will:
         - Check if the watchdog LaunchAgent is installed
         - Install it if missing
         - Start it if not running
         - Show current status
-      
+
       The watchdog runs as a background LaunchAgent that survives reboots.
       When it detects imagent XPC/sandbox errors, it automatically runs
       `imsg-plus launch` to restart Messages.app with proper dylib injection.
@@ -66,39 +66,39 @@ enum WatchdogCommand {
     let uninstall = values.flags.contains("uninstall")
     let runDaemon = values.flags.contains("run")
     let showLogs = values.flags.contains("logs")
-    
+
     if showLogs {
       try await tailLogs(runtime: runtime)
       return
     }
-    
+
     if runDaemon {
       try await runWatchdogLoop(runtime: runtime)
       return
     }
-    
+
     if uninstall {
       try await uninstallWatchdog(runtime: runtime)
       return
     }
-    
+
     if statusOnly {
       try await showStatus(runtime: runtime)
       return
     }
-    
+
     // Default: ensure installed and running
     try await ensureRunning(runtime: runtime)
   }
-  
+
   // MARK: - Status
-  
+
   static func showStatus(runtime: RuntimeOptions) async throws {
     let installed = isInstalled()
     let running = isRunning()
     let pid = getRunningPid()
     let lastIncident = getLastIncident()
-    
+
     if runtime.jsonOutput {
       var output: [String: Any] = [
         "installed": installed,
@@ -129,13 +129,13 @@ enum WatchdogCommand {
       }
     }
   }
-  
+
   // MARK: - Ensure Running
-  
+
   static func ensureRunning(runtime: RuntimeOptions) async throws {
     let installed = isInstalled()
     let running = isRunning()
-    
+
     if installed && running {
       // Already good
       if !runtime.jsonOutput {
@@ -157,7 +157,7 @@ enum WatchdogCommand {
       }
       return
     }
-    
+
     // Need to install
     if !installed {
       if !runtime.jsonOutput {
@@ -168,17 +168,17 @@ enum WatchdogCommand {
         print("   ✅ Installed")
       }
     }
-    
+
     // Need to start
     if !isRunning() {
       if !runtime.jsonOutput {
         print("🚀 Starting watchdog...")
       }
       try startLaunchAgent()
-      
+
       // Wait a moment for it to start
       try await Task.sleep(nanoseconds: 1_000_000_000)
-      
+
       if isRunning() {
         if !runtime.jsonOutput {
           print("   ✅ Started")
@@ -189,7 +189,7 @@ enum WatchdogCommand {
         }
       }
     }
-    
+
     if runtime.jsonOutput {
       let output: [String: Any] = [
         "success": true,
@@ -208,27 +208,27 @@ enum WatchdogCommand {
       print("Log: \(logPath)")
     }
   }
-  
+
   // MARK: - Uninstall
-  
+
   static func uninstallWatchdog(runtime: RuntimeOptions) async throws {
     if !runtime.jsonOutput {
       print("🛑 Stopping watchdog...")
     }
-    
+
     if isRunning() {
       try stopLaunchAgent()
       try await Task.sleep(nanoseconds: 500_000_000)
     }
-    
+
     if !runtime.jsonOutput {
       print("🗑️  Removing LaunchAgent...")
     }
-    
+
     if FileManager.default.fileExists(atPath: launchAgentPath) {
       try FileManager.default.removeItem(atPath: launchAgentPath)
     }
-    
+
     if runtime.jsonOutput {
       let output: [String: Any] = [
         "success": true,
@@ -241,120 +241,121 @@ enum WatchdogCommand {
       print("✅ Watchdog uninstalled")
     }
   }
-  
+
   // MARK: - Daemon Loop
-  
+
   static func runWatchdogLoop(runtime: RuntimeOptions) async throws {
     log("Watchdog starting...")
     log("Monitoring imagent for: \(errorPatterns.joined(separator: ", "))")
-    
+
     let cooldownSeconds: TimeInterval = 300  // 5 minutes
     var lastRestartTime: Date? = nil
-    
+
     // Use log stream to monitor imagent
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/log")
     process.arguments = ["stream", "--predicate", "process == \"imagent\"", "--style", "compact"]
-    
+
     let pipe = Pipe()
     process.standardOutput = pipe
     process.standardError = FileHandle.nullDevice
-    
+
     try process.run()
-    
+
     let handle = pipe.fileHandleForReading
-    
+
     // Read line by line
     while process.isRunning {
       if let data = try? handle.availableData, !data.isEmpty,
          let line = String(data: data, encoding: .utf8) {
-        
+
         // Check for error patterns
         for pattern in errorPatterns {
           if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
              regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) != nil {
-            
+
             log("ERROR DETECTED: \(line.trimmingCharacters(in: .whitespacesAndNewlines))")
-            
+
             // Check cooldown
             if let lastRestart = lastRestartTime,
                Date().timeIntervalSince(lastRestart) < cooldownSeconds {
-              log("SKIP: Cooldown active (\(Int(Date().timeIntervalSince(lastRestart)))s since last restart)")
+              let elapsed = Int(Date().timeIntervalSince(lastRestart))
+              log("SKIP: Cooldown active (\(elapsed)s since last restart)")
               continue
             }
-            
+
             // Restart Messages.app
             log("RESTARTING: Running imsg-plus launch...")
-            
+
             let launchProcess = Process()
             launchProcess.executableURL = URL(fileURLWithPath: "/usr/local/bin/imsg-plus")
             launchProcess.arguments = ["launch", "--quiet"]
             try? launchProcess.run()
             launchProcess.waitUntilExit()
-            
+
             lastRestartTime = Date()
-            
+
             if launchProcess.terminationStatus == 0 {
               log("RESTARTED: Messages.app restarted successfully")
             } else {
               log("WARNING: imsg-plus launch exited with status \(launchProcess.terminationStatus)")
             }
-            
+
             break
           }
         }
       }
-      
+
       // Small sleep to prevent CPU spin
       try await Task.sleep(nanoseconds: 100_000_000)
     }
-    
+
     log("Watchdog exiting (log stream ended)")
   }
-  
+
   // MARK: - Tail Logs
-  
+
   static func tailLogs(runtime: RuntimeOptions) async throws {
     guard FileManager.default.fileExists(atPath: logPath) else {
       print("No log file found at: \(logPath)")
       return
     }
-    
+
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/tail")
     process.arguments = ["-f", logPath]
     process.standardOutput = FileHandle.standardOutput
     process.standardError = FileHandle.standardError
-    
+
     try process.run()
     process.waitUntilExit()
   }
-  
+
   // MARK: - Helpers
-  
+
   static func isInstalled() -> Bool {
     return FileManager.default.fileExists(atPath: launchAgentPath)
   }
-  
+
   static func isRunning() -> Bool {
     return getRunningPid() != nil
   }
-  
+
   static func getRunningPid() -> Int? {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
     process.arguments = ["list"]
-    
+
     let pipe = Pipe()
     process.standardOutput = pipe
     process.standardError = FileHandle.nullDevice
-    
+
     try? process.run()
     process.waitUntilExit()
-    
+
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
     guard let output = String(data: data, encoding: .utf8) else { return nil }
-    
+
     for line in output.components(separatedBy: "\n") {
       if line.contains(launchAgentLabel) {
         let parts = line.components(separatedBy: "\t")
@@ -365,13 +366,13 @@ enum WatchdogCommand {
     }
     return nil
   }
-  
+
   static func getLastIncident() -> String? {
     guard FileManager.default.fileExists(atPath: logPath),
           let content = try? String(contentsOfFile: logPath, encoding: .utf8) else {
       return nil
     }
-    
+
     let lines = content.components(separatedBy: "\n")
     for line in lines.reversed() {
       if line.contains("RESTARTED:") || line.contains("ERROR DETECTED:") {
@@ -380,11 +381,11 @@ enum WatchdogCommand {
     }
     return nil
   }
-  
+
   static func installLaunchAgent() throws {
     let execPath = ProcessInfo.processInfo.arguments[0]
     let resolvedPath = execPath.hasPrefix("/") ? execPath : "/usr/local/bin/imsg-plus"
-    
+
     let plist = """
       <?xml version="1.0" encoding="UTF-8"?>
       <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -411,14 +412,17 @@ enum WatchdogCommand {
       </dict>
       </plist>
       """
-    
+
     // Ensure LaunchAgents directory exists
     let launchAgentsDir = (launchAgentPath as NSString).deletingLastPathComponent
-    try FileManager.default.createDirectory(atPath: launchAgentsDir, withIntermediateDirectories: true)
-    
+    try FileManager.default.createDirectory(
+      atPath: launchAgentsDir,
+      withIntermediateDirectories: true
+    )
+
     try plist.write(toFile: launchAgentPath, atomically: true, encoding: .utf8)
   }
-  
+
   static func startLaunchAgent() throws {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
@@ -428,7 +432,7 @@ enum WatchdogCommand {
     try process.run()
     process.waitUntilExit()
   }
-  
+
   static func stopLaunchAgent() throws {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
@@ -438,12 +442,12 @@ enum WatchdogCommand {
     try process.run()
     process.waitUntilExit()
   }
-  
+
   static func log(_ message: String) {
     let timestamp = ISO8601DateFormatter().string(from: Date())
     let line = "[\(timestamp)] \(message)"
     print(line)
-    
+
     // Also append to log file
     if let data = (line + "\n").data(using: .utf8) {
       if FileManager.default.fileExists(atPath: logPath) {
