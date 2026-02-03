@@ -9,7 +9,7 @@ enum ReactCommand {
     discussion: """
       Add or remove tapback reactions (love, like, dislike, laugh, emphasis, question)
       to specific messages. Use the message GUID from history or watch commands.
-      
+
       Reaction types:
       • love/heart - ❤️
       • thumbsup/like - 👍
@@ -17,20 +17,26 @@ enum ReactCommand {
       • haha/laugh - 😂
       • emphasis/!! - ‼️
       • question/? - ❓
-      
+
       Add --remove flag to remove an existing reaction.
-      
+
       Note: Requires advanced permissions (SIP disabled) for full functionality.
       """,
     signature: CommandSignatures.withRuntimeFlags(
       CommandSignature(
         options: CommandSignatures.baseOptions() + [
-          .make(label: "handle", names: [.long("handle")], help: "Phone number, email, or chat identifier"),
+          .make(
+            label: "handle", names: [.long("handle")],
+            help: "Phone number, email, or chat identifier"),
           .make(label: "guid", names: [.long("guid")], help: "Message GUID to react to"),
-          .make(label: "type", names: [.long("type")], help: "Reaction type: love, thumbsup, thumbsdown, haha, emphasis, question")
+          .make(
+            label: "type", names: [.long("type")],
+            help: "Reaction type: love, thumbsup, thumbsdown, haha, emphasis, question"),
         ],
         flags: [
-          .make(label: "remove", names: [.long("remove")], help: "Remove the reaction instead of adding it")
+          .make(
+            label: "remove", names: [.long("remove")],
+            help: "Remove the reaction instead of adding it")
         ]
       )
     ),
@@ -38,12 +44,12 @@ enum ReactCommand {
       "imsg-plus react --handle +14155551234 --guid ABC123-456 --type love",
       "imsg-plus react --handle john@example.com --guid XYZ789 --type thumbsup",
       "imsg-plus react --handle +14155551234 --guid ABC123-456 --type haha --remove",
-      "imsg-plus react --handle chat123456789 --guid MSG-001 --type question"
+      "imsg-plus react --handle chat123456789 --guid MSG-001 --type question",
     ]
   ) { values, runtime in
     try await run(values: values, runtime: runtime)
   }
-  
+
   static func run(values: ParsedValues, runtime: RuntimeOptions) async throws {
     guard let handle = values.option("handle") else {
       throw IMsgError.invalidArgument("--handle is required")
@@ -55,30 +61,31 @@ enum ReactCommand {
       throw IMsgError.invalidArgument("--type is required")
     }
     let remove = values.flag("remove")
-    
+
     guard let tapbackType = TapbackType.from(string: typeStr, remove: remove) else {
-      throw IMsgError.invalidArgument("""
+      throw IMsgError.invalidArgument(
+        """
         Invalid reaction type: '\(typeStr)'
         Valid types: love, thumbsup, thumbsdown, haha, emphasis, question
         """)
     }
-    
+
     let bridge = IMCoreBridge.shared
     let availability = bridge.checkAvailability()
-    
+
     if !availability.available {
       print("⚠️  \(availability.message)")
       print("\nTapback reactions require advanced features to be enabled.")
       print("See: https://github.com/steipete/imsg#advanced-features")
       return
     }
-    
+
     do {
       try await bridge.sendTapback(to: handle, messageGUID: guid, type: tapbackType)
-      
+
       let action = remove ? "removed" : "added"
       let emoji = emojiForTapback(tapbackType)
-      
+
       if runtime.jsonOutput {
         let output: [String: Any] = [
           "success": true,
@@ -87,7 +94,7 @@ enum ReactCommand {
           "reaction": tapbackType.displayName,
           "action": action,
           "emoji": emoji,
-          "timestamp": ISO8601DateFormatter().string(from: Date())
+          "timestamp": ISO8601DateFormatter().string(from: Date()),
         ]
         print(JSONSerialization.string(from: output))
       } else {
@@ -100,7 +107,7 @@ enum ReactCommand {
           "error": error.description,
           "handle": handle,
           "message_guid": guid,
-          "reaction": tapbackType.displayName
+          "reaction": tapbackType.displayName,
         ]
         print(JSONSerialization.string(from: output))
       } else {
@@ -109,7 +116,7 @@ enum ReactCommand {
       throw error
     }
   }
-  
+
   private static func emojiForTapback(_ type: TapbackType) -> String {
     switch type {
     case .love, .removeLove: return "❤️"

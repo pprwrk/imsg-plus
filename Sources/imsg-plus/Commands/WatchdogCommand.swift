@@ -13,7 +13,7 @@ enum WatchdogCommand {
     "XPC.*connection.*invalid",
     "Unable to send to server",
     "PSC out of sync",
-    "IMDMessageServicesAgent.*invalid"
+    "IMDMessageServicesAgent.*invalid",
   ]
 
   static let spec = CommandSpec(
@@ -267,18 +267,21 @@ enum WatchdogCommand {
     // Read line by line
     while process.isRunning {
       if let data = try? handle.availableData, !data.isEmpty,
-         let line = String(data: data, encoding: .utf8) {
+        let line = String(data: data, encoding: .utf8)
+      {
 
         // Check for error patterns
         for pattern in errorPatterns {
           if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
-             regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) != nil {
+            regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) != nil
+          {
 
             log("ERROR DETECTED: \(line.trimmingCharacters(in: .whitespacesAndNewlines))")
 
             // Check cooldown
             if let lastRestart = lastRestartTime,
-               Date().timeIntervalSince(lastRestart) < cooldownSeconds {
+              Date().timeIntervalSince(lastRestart) < cooldownSeconds
+            {
               let elapsed = Int(Date().timeIntervalSince(lastRestart))
               log("SKIP: Cooldown active (\(elapsed)s since last restart)")
               continue
@@ -369,7 +372,8 @@ enum WatchdogCommand {
 
   static func getLastIncident() -> String? {
     guard FileManager.default.fileExists(atPath: logPath),
-          let content = try? String(contentsOfFile: logPath, encoding: .utf8) else {
+      let content = try? String(contentsOfFile: logPath, encoding: .utf8)
+    else {
       return nil
     }
 

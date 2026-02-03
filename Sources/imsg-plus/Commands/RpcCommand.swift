@@ -11,8 +11,12 @@ enum RpcCommand {
       CommandSignature(
         options: CommandSignatures.baseOptions(),
         flags: [
-          .make(label: "noAutoRead", names: [.long("no-auto-read")], help: "Disable automatic read receipts"),
-          .make(label: "noAutoTyping", names: [.long("no-auto-typing")], help: "Disable automatic typing indicators on send"),
+          .make(
+            label: "noAutoRead", names: [.long("no-auto-read")],
+            help: "Disable automatic read receipts"),
+          .make(
+            label: "noAutoTyping", names: [.long("no-auto-typing")],
+            help: "Disable automatic typing indicators on send"),
         ]
       )
     ),

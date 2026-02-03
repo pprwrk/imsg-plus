@@ -21,7 +21,7 @@ enum LaunchCommand {
         options: [
           .make(
             label: "dylib", names: [.long("dylib")],
-            help: "Custom path to imsg-plus-helper.dylib"),
+            help: "Custom path to imsg-plus-helper.dylib")
         ],
         flags: [
           .make(
@@ -78,7 +78,8 @@ enum LaunchCommand {
     let dylibPath = resolveDylibPath(custom: customDylib)
 
     guard let resolvedPath = dylibPath else {
-      let error = "imsg-plus-helper.dylib not found. Searched:\n"
+      let error =
+        "imsg-plus-helper.dylib not found. Searched:\n"
         + "  - /usr/local/lib/imsg-plus-helper.dylib\n"
         + "  - .build/release/imsg-plus-helper.dylib\n"
         + "Run 'make build-dylib' or specify --dylib <path>"

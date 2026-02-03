@@ -188,7 +188,8 @@ final class RPCServer {
                         try await Task.sleep(nanoseconds: 1_000_000_000)
                         try await IMCoreBridge.shared.markAsRead(handle: handle)
                         if localVerbose {
-                          FileHandle.standardError.write(Data("[auto-read] marked read for \(handle)\n".utf8))
+                          FileHandle.standardError.write(
+                            Data("[auto-read] marked read for \(handle)\n".utf8))
                         }
                       } catch {
                         if localVerbose {
@@ -390,27 +391,34 @@ final class RPCServer {
       throw RPCError.invalidParams("guid is required (message GUID to react to)")
     }
     guard let typeStr = stringParam(params["type"]), !typeStr.isEmpty else {
-      throw RPCError.invalidParams("type is required (love, thumbsup, thumbsdown, haha, emphasis, question)")
+      throw RPCError.invalidParams(
+        "type is required (love, thumbsup, thumbsdown, haha, emphasis, question)")
     }
     let remove = boolParam(params["remove"]) ?? false
     guard let tapbackType = TapbackType.from(string: typeStr, remove: remove) else {
-      throw RPCError.invalidParams("invalid reaction type: '\(typeStr)'. Valid: love, thumbsup, thumbsdown, haha, emphasis, question")
+      throw RPCError.invalidParams(
+        "invalid reaction type: '\(typeStr)'. Valid: love, thumbsup, thumbsdown, haha, emphasis, question"
+      )
     }
     guard bridgeAvailable else {
       throw RPCError.internalError("IMCoreBridge not available")
     }
     try await IMCoreBridge.shared.sendTapback(to: handle, messageGUID: guid, type: tapbackType)
-    respond(id: id, result: [
-      "ok": true,
-      "handle": handle,
-      "guid": guid,
-      "type": tapbackType.displayName,
-      "action": remove ? "removed" : "added",
-    ])
+    respond(
+      id: id,
+      result: [
+        "ok": true,
+        "handle": handle,
+        "guid": guid,
+        "type": tapbackType.displayName,
+        "action": remove ? "removed" : "added",
+      ])
   }
 
   /// Resolve the best handle for typing/read from send params
-  private func resolveTypingHandle(recipient: String, chatIdentifier: String, chatGUID: String) -> String? {
+  private func resolveTypingHandle(recipient: String, chatIdentifier: String, chatGUID: String)
+    -> String?
+  {
     if !recipient.isEmpty { return recipient }
     if !chatIdentifier.isEmpty { return chatIdentifier }
     if !chatGUID.isEmpty { return chatGUID }

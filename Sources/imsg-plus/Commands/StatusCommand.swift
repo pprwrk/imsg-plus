@@ -18,11 +18,11 @@ enum StatusCommand {
   ) { values, runtime in
     try await run(values: values, runtime: runtime)
   }
-  
+
   static func run(values: ParsedValues, runtime: RuntimeOptions) async throws {
     let bridge = IMCoreBridge.shared
     let availability = bridge.checkAvailability()
-    
+
     if runtime.jsonOutput {
       let output: [String: Any] = [
         "basic_features": true,
@@ -30,7 +30,7 @@ enum StatusCommand {
         "typing_indicators": availability.available,
         "read_receipts": availability.available,
         "tapback_reactions": availability.available,
-        "message": availability.message
+        "message": availability.message,
       ]
       print(JSONSerialization.string(from: output))
     } else {

@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import imsg-plus
+@testable import imsg_plus
 
 @Test
 func commandRouterPrintsVersionFromEnv() async throws {

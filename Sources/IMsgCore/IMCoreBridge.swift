@@ -131,10 +131,11 @@ public final class IMCoreBridge: @unchecked Sendable {
 
   /// Set typing indicator for a conversation
   public func setTyping(for handle: String, typing: Bool) async throws {
-    let params = [
-      "handle": handle,
-      "typing": typing,
-    ] as [String: Any]
+    let params =
+      [
+        "handle": handle,
+        "typing": typing,
+      ] as [String: Any]
 
     _ = try await sendCommand(action: "typing", params: params)
   }
@@ -151,11 +152,12 @@ public final class IMCoreBridge: @unchecked Sendable {
     messageGUID: String,
     type: TapbackType
   ) async throws {
-    let params = [
-      "handle": handle,
-      "guid": messageGUID,
-      "type": type.rawValue,
-    ] as [String: Any]
+    let params =
+      [
+        "handle": handle,
+        "guid": messageGUID,
+        "type": type.rawValue,
+      ] as [String: Any]
 
     _ = try await sendCommand(action: "react", params: params)
   }
