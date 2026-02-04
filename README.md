@@ -22,6 +22,7 @@ An enhanced macOS Messages.app CLI that adds typing indicators, read receipts, t
 - **JSON-RPC server** — Programmatic access via `imsg-plus rpc` over stdin/stdout
 - **Auto-typing** — Outgoing sends show typing indicator first (1.5–4s based on message length)
 - **Auto-read** — Incoming messages automatically get read receipts (~1s delay)
+- **Watchdog** — Auto-heal Messages.app sync issues by monitoring imagent logs
 - **Objective-C helper** — Bridges Swift to IMCore private framework
 
 ## Requirements
@@ -61,6 +62,7 @@ make build-dylib
 - `imsg-plus launch --kill-only` — Kill Messages.app without relaunching
 - `imsg-plus launch --dylib <path>` — Launch with a custom dylib path
 - `imsg-plus rpc` — Start JSON-RPC 2.0 server over stdin/stdout
+- `imsg-plus watchdog` — Install/manage the auto-healing watchdog daemon
 
 ### Quick samples
 ```bash
@@ -99,6 +101,18 @@ imsg-plus launch
 
 # kill Messages without relaunching
 imsg-plus launch --kill-only
+
+# install and start the watchdog
+imsg-plus watchdog
+
+# check watchdog status
+imsg-plus watchdog --status
+
+# view watchdog logs
+imsg-plus watchdog --logs
+
+# stop and uninstall watchdog
+imsg-plus watchdog --uninstall
 ```
 
 ## RPC Server
@@ -277,6 +291,52 @@ Auto-launch Messages with dylib injection on login:
 cp com.imsg-plus.messages-helper.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.imsg-plus.messages-helper.plist
 ```
+
+## Watchdog
+
+The watchdog monitors macOS `imagent` logs for sync failures and automatically restarts Messages.app with dylib injection when issues are detected. This is useful for long-running setups (like Clawdbot) where Messages.app can occasionally lose its connection to iCloud.
+
+### What it monitors
+
+The watchdog watches for `imagent` XPC/sandbox errors in the system logs — these indicate Messages.app has lost sync with iCloud and needs a restart to recover.
+
+### Usage
+
+```bash
+# Install and start the watchdog (one command does it all)
+imsg-plus watchdog
+
+# Check if it's running
+imsg-plus watchdog --status
+
+# View real-time logs
+imsg-plus watchdog --logs
+
+# Stop and uninstall
+imsg-plus watchdog --uninstall
+
+# Run in foreground (used internally by LaunchAgent)
+imsg-plus watchdog --run
+```
+
+### How it works
+
+1. Running `imsg-plus watchdog` installs a LaunchAgent (`com.imsg-plus.watchdog.plist`)
+2. The LaunchAgent runs `imsg-plus watchdog --run` as a background daemon
+3. The daemon monitors `/var/log/system.log` for imagent errors
+4. When errors are detected, it runs `imsg-plus launch` to restart Messages.app with proper dylib injection
+5. The watchdog survives reboots and auto-starts on login
+
+### Recommended setup
+
+For reliable iMessage automation:
+
+```bash
+imsg-plus watchdog     # install watchdog (runs forever, survives reboots)
+imsg-plus status       # verify everything is working
+```
+
+The watchdog replaces the need for the manual LaunchAgent setup above — it handles both the initial launch and ongoing health monitoring.
 
 ## Testing
 ```bash
