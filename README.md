@@ -28,7 +28,7 @@ An enhanced macOS Messages.app CLI that adds typing indicators, read receipts, t
 ## Requirements
 - macOS 14+ with Messages.app signed in.
 - Full Disk Access for your terminal to read `~/Library/Messages/chat.db`.
-- **Automation permission** for your terminal to control Messages.app (System Settings → Privacy & Security → Automation). Without it, send commands hang silently — no error, just blocks forever.
+- **Automation permission** for imsg-plus to control Messages.app (see [Permissions troubleshooting](#%EF%B8%8F-automation-permission-important) — this is the #1 source of issues).
 - For SMS relay, enable "Text Message Forwarding" on your iPhone to this Mac.
 
 ## Install
@@ -182,10 +182,57 @@ Use **either** `to` **or** one of the `chat_*` parameters — not both. The `cha
 Note: `reply_to_guid` and `reactions` are read-only metadata.
 
 ## Permissions troubleshooting
+
+### Full Disk Access
 If you see "unable to open database file" or empty output:
-1) Grant Full Disk Access: System Settings → Privacy & Security → Full Disk Access → add your terminal.
-2) Ensure Messages.app is signed in and `~/Library/Messages/chat.db` exists.
-3) For send, allow the terminal under System Settings → Privacy & Security → Automation → Messages.
+1. Grant Full Disk Access: System Settings → Privacy & Security → Full Disk Access → add your terminal.
+2. Ensure Messages.app is signed in and `~/Library/Messages/chat.db` exists.
+
+### ⚠️ Automation Permission (Important!)
+
+imsg-plus uses AppleScript to control Messages.app. macOS requires **Automation permission** for this to work.
+
+**Symptoms when permission is missing:**
+- `send` commands hang forever (no error, just blocks)
+- Messages appear in chat.db but never actually send
+- Works fine from the web UI / database, but recipients never receive them
+
+**How to fix:**
+
+1. **From a GUI Terminal session** (not SSH), run:
+   ```bash
+   /usr/local/bin/imsg-plus send --to <your-phone> --text "permission test"
+   ```
+2. macOS will prompt: "imsg-plus wants to control Messages.app"
+3. Click **Allow**
+
+Or manually: System Settings → Privacy & Security → Automation → find `imsg-plus` → enable **Messages**
+
+### 🔄 Why Rebuilds Break Permissions
+
+**This is the #1 gotcha with imsg-plus.**
+
+imsg-plus is **ad-hoc signed** (no Apple Developer certificate). macOS ties Automation permissions to the binary's code signature. When you rebuild:
+
+1. The code signature changes
+2. macOS invalidates the previous Automation authorization
+3. imsg-plus silently loses permission to control Messages.app
+4. Since it often runs headlessly (daemon, SSH, cron), macOS can't prompt you — it just denies silently
+
+**After every rebuild, you must re-grant Automation permission** by running a send command from a GUI Terminal session (not SSH).
+
+### Long-term Fix: Developer ID Signing
+
+To make permissions persist across rebuilds, sign the binary with an Apple Developer ID certificate:
+
+```bash
+# After building
+codesign --force --sign "Developer ID Application: Your Name (TEAMID)" /usr/local/bin/imsg-plus
+```
+
+With proper signing, macOS recognizes rebuilds as the "same" app and preserves permissions.
+
+**Note:** This requires an [Apple Developer Program](https://developer.apple.com/programs/) membership ($99/year).
 
 ## Advanced Features Setup (imsg-plus)
 
